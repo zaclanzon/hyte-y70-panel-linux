@@ -74,9 +74,19 @@ buttons, and where the colors come from. Changes apply immediately.
 your case lighting through an [OpenRGB](https://openrgb.org) server, or from a
 JSON file your lighting tool writes. Without either, pick a preset or two
 colors in Settings. The animated ground behind the cards is chosen there too,
-from eleven live previews: liquid metal, aero ribbons, bokeh, pool caustics,
-ink marble, satin, reaction-diffusion coral, lava lamp, light shafts, contour
-lines and a hex lattice.
+from forty-four live previews: liquid metal, aero ribbons, bokeh, pool
+caustics, ink marble, satin, reaction-diffusion coral, lava lamp, light shafts,
+contour lines, a hex lattice, aurora curtains, a nebula, plasma, stained cells,
+rain on glass, a neon horizon, smoke, circuit traces, a star warp, an ocean
+swell, a wormhole, a night skyline, a sonar sweep, code rain, a black hole,
+fireflies, a double helix, a failing CRT, flames, a storm, a spiral galaxy,
+wireframe terrain, a ringed planet, pond ripples, a hologram globe, lasers,
+moonlit dunes, a meteor shower, glitch bands, an oscilloscope, a comet, a pulsar and a solar eclipse.
+Visible settings tiles animate automatically at 15 fps using one shared WebGL
+context and a combined 96,000-pixel budget. Offscreen tiles and hidden tabs stop
+rendering; the panel background is capped at 30 fps. Saving or reloading settings
+keeps the existing preview canvases and compiled shaders, so thumbnails do not
+restart in a slow sequence.
 
 **Automata.** The card runs Life-like rules, Brian's Brain, Wolfram's
 elementary rules and cyclic automata on the GPU. Drag to paint, hold to stamp
