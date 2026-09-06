@@ -16,7 +16,10 @@ WIDGET_IDS = ["clock", "weather", "cpu", "gpu", "memory", "network", "agents", "
 DEFAULT_WIDGETS = ["clock", "weather", "cpu", "gpu", "memory", "network", "agents", "automata"]
 # Ambient backgrounds behind the glass, in the order the settings page lists
 # them. The shaders live in static/ambient.js (DESIGNS).
-BACKGROUNDS = ["liquid", "ribbons", "bokeh", "caustics", "ink", "satin", "coral", "lava", "shafts", "contours", "hex"]
+BACKGROUNDS = ["liquid", "ribbons", "bokeh", "caustics", "ink", "satin", "coral", "lava", "shafts", "contours", "hex",
+               "aurora", "nebula", "plasma", "cells", "rain", "horizon", "smoke", "circuit", "warp", "swell",
+               "tunnel", "skyline", "sonar", "code", "blackhole", "fireflies", "helix", "crt", "flames", "storm",
+               "galaxy", "terrain", "orbits", "ripples", "globe", "lasers", "dunes", "meteors", "glitch", "scope", "comet", "pulsar", "eclipse"]
 
 
 def default_config_path() -> Path:

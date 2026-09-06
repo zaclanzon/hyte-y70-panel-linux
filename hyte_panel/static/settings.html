@@ -322,24 +322,56 @@
       if (t) liveTheme = t;
       if (changed && cfg) refreshBackgrounds();
     }
+    // Only visible tiles render. Build one per frame, and cancel queued work
+    // when the tab is hidden. Keep the picker across Save/Reload so already
+    // rendered thumbnails, shader programs and animation clocks survive.
+    let backgroundField = null;
     function backgroundPicker() {
-      bgPreviews.forEach((p) => p.destroy()); bgPreviews = [];
+      if (backgroundField) return backgroundField;
+      const visible = new Set(), live = new Map();
+      let pending = 0;
       const wrap = document.createElement("div"); wrap.className = "field wide";
-      wrap.innerHTML = `<label>Background</label><div class="backgrounds"></div><div class="help">The animated ground behind the cards. Each tile runs the real shader in your current colors.</div>`;
+      wrap.innerHTML = `<label>Background</label><div class="backgrounds"></div><div class="help">Visible previews animate automatically in your current colors. Offscreen previews pause to save power.</div>`;
       const box = wrap.querySelector(".backgrounds");
       const designs = window.HyteAmbient ? HyteAmbient.DESIGNS : [{ id: "liquid", name: "Liquid metal", blurb: "" }];
-      const [primary, secondary] = previewColors();
+      function drain() {
+        pending = 0;
+        if (document.hidden || !window.HyteAmbient) return;
+        const btn = [...visible].find((b) => !live.has(b));
+        if (!btn) return;
+        const [primary, secondary] = previewColors();
+        const pv = HyteAmbient.preview(btn.querySelector("canvas"), { design: btn.dataset.id, primary, secondary });
+        live.set(btn, pv);
+        bgPreviews = [...live.values()].filter(Boolean);
+        schedule();
+      }
+      function schedule() {
+        if (!pending && !document.hidden && [...visible].some((b) => !live.has(b))) pending = requestAnimationFrame(drain);
+      }
+      const observer = typeof IntersectionObserver === "function"
+        ? new IntersectionObserver((entries) => {
+            entries.forEach((e) => {
+              if (e.isIntersecting) visible.add(e.target);
+              else {
+                visible.delete(e.target);
+                const pv = live.get(e.target);
+                if (pv) pv.destroy();
+                live.delete(e.target);
+              }
+            });
+            bgPreviews = [...live.values()].filter(Boolean);
+            schedule();
+          }) : null;
+      document.addEventListener("visibilitychange", schedule);
       designs.forEach((d) => {
         const btn = document.createElement("button"); btn.type = "button"; btn.className = "bg"; btn.dataset.id = d.id; btn.title = d.blurb;
         btn.innerHTML = `<span class="bg-tile"><canvas></canvas></span><span class="bg-name">${d.name}</span>`;
         btn.addEventListener("click", () => { set("theme.background", d.id); dirty(); refreshBackgrounds(); });
         box.appendChild(btn);
-        if (window.HyteAmbient) {
-          const pv = HyteAmbient.preview(btn.querySelector("canvas"), { design: d.id, primary, secondary });
-          if (pv) bgPreviews.push(pv);
-        }
+        if (observer) observer.observe(btn); else visible.add(btn);
       });
-      refreshBackgrounds();
+      schedule();
+      backgroundField = wrap;
       return wrap;
     }
     function refreshBackgrounds() {
@@ -474,7 +506,7 @@
       drawWidgets();
       const look = $("look"); look.innerHTML = `<h2>Look</h2><p class="lead">Two accent colors drive the whole page. Take them from your case lighting, or pick them here.</p>`; look.appendChild(fields(LOOK));
       const screen = $("screen"); screen.innerHTML = `<h2>Screen</h2><p class="lead">Dimming and sampling rate.</p>`; screen.appendChild(fields(SCREEN));
-      refreshPresets(); rerenderVisibility();
+      refreshPresets(); refreshBackgrounds(); rerenderVisibility();
     }
 
     async function load() {

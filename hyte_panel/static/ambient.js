@@ -4,7 +4,8 @@
    ids also listed in config.py BACKGROUNDS). Colors follow the case lighting
    through HyteAmbient.setPalette(); the settings page draws live previews
    with HyteAmbient.preview(). Every design is a function of trig terms in
-   `time` with rates in integer thousandths, so the clock can wrap at 2000*pi
+   `time` with rates in integer thousandths (or of saw(), a sawtooth with a
+   whole number of cycles per period), so the clock can wrap at 2000*pi
    seconds without a visible cut and floats stay precise on multi-day runs. */
 (function () {
   "use strict";
@@ -49,6 +50,9 @@
     // the same on the panel and in a preview of any height.
     vec2 coords() { return (gl_FragCoord.xy - 0.5 * resolution) / resolution.x; }
     float aspect() { return resolution.y / resolution.x; }
+    // Sawtooth with k whole cycles per clock period, so it wraps when the
+    // clock does. For anything that has to scroll rather than oscillate.
+    float saw(float k) { return fract(time * (k / 6283.1853)); }
   `;
 
   const DESIGNS = [
@@ -348,6 +352,917 @@
           gl_FragColor = vec4(col, 1.0);
         }`,
     },
+    {
+      id: "aurora", name: "Aurora curtains",
+      blurb: "Curtains of light hanging from the top, rippling sideways, rayed like the real thing.",
+      frag: `
+        float curtain(vec2 p, float seed) {
+          float w = p.y * 0.9 + seed;
+          float xc = 0.30 * sin(w * 1.1 + time * 0.041 + seed) + 0.18 * sin(w * 2.7 - time * 0.029)
+                   + 0.35 * (fbm(vec2(w * 0.6, seed + 0.4 * sin(time * 0.017))) - 0.5);
+          float d = p.x - xc;
+          float width = 0.05 + 0.03 * sin(w * 1.7 + time * 0.023);
+          float band = exp(-d * d / (width * width));
+          float rays = 0.6 + 0.4 * noise(vec2(p.x * 40.0 + 2.0 * sin(time * 0.05), p.y * 2.0));
+          return band * rays;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float up = smoothstep(-0.5 * a, 0.5 * a, p.y);
+          vec3 col = page * 0.85 + mix(primary, secondary, up) * 0.05;
+          float c1 = curtain(p, 0.0), c2 = curtain(p + vec2(0.28, 0.0), 3.7), c3 = curtain(p - vec2(0.3, 0.0), 7.9);
+          float tide = 0.5 + 0.5 * sin(p.y * 1.5 + time * 0.03);
+          vec3 t1 = mix(primary, secondary, tide), t2 = mix(secondary, primary, tide);
+          col += t1 * c1 * 0.7 + t2 * c2 * 0.55 + mix(t1, t2, 0.5) * c3 * 0.45;
+          col += vec3(0.9, 0.95, 1.0) * (c1 * c1 + c2 * c2 + c3 * c3) * 0.12 * (0.4 + 0.6 * up);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "nebula", name: "Nebula",
+      blurb: "Gas clouds in the two accents behind dust lanes, with a field of slow-twinkling stars.",
+      frag: `
+        void main() {
+          vec2 p = coords() * 2.0;
+          vec2 drift = vec2(0.6 * sin(time * 0.009), 0.6 * sin(time * 0.013 + 1.0));
+          float n1 = fbm(p * 1.3 + drift);
+          float n2 = fbm(p * 2.1 - drift.yx + vec2(4.0, 2.0) + 0.3 * n1);
+          float n3 = fbm(p * 0.8 + vec2(0.4 * sin(time * 0.007), 0.4 * cos(time * 0.011)) + 9.0);
+          float density = smoothstep(0.28, 0.75, n1 * 0.6 + n2 * 0.4);
+          float dark = smoothstep(0.55, 0.8, n3);
+          vec3 cloud = mix(primary, secondary, smoothstep(0.3, 0.7, n2));
+          vec3 col = page * 0.8 + cloud * 0.06 + cloud * density * 0.85 * (1.0 - 0.7 * dark);
+          col += vec3(1.0, 0.95, 0.9) * pow(density, 3.0) * 0.25 * (1.0 - dark);
+          vec2 g = coords() * 40.0; vec2 id = floor(g), f = fract(g) - 0.5; vec2 h = hash2(id);
+          float d = length(f - (h - 0.5) * 0.8);
+          float tw = 0.6 + 0.4 * sin(time * (0.3 + 0.001 * floor(h.x * 700.0)) + h.y * 6.28);
+          float star = smoothstep(0.06, 0.0, d) * step(0.75, hash(id + 4.4)) * tw;
+          col += vec3(1.0) * star * (0.5 + 0.5 * (1.0 - density));
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "plasma", name: "Plasma",
+      blurb: "The old demo-scene plasma: summed sine fields cycling through the two accents.",
+      frag: `
+        void main() {
+          vec2 p = coords() * 6.0; float t = time;
+          float v = sin(p.x + t * 0.21)
+                  + sin((p.y + t * 0.17) * 1.3)
+                  + sin((p.x * sin(t * 0.05) + p.y * cos(t * 0.041)) * 1.5)
+                  + sin(length(p + vec2(3.0 * sin(t * 0.031), 3.0 * cos(t * 0.027))) * 1.4 - t * 0.13);
+          v *= 0.25;
+          vec3 tint = mix(primary, secondary, 0.5 + 0.5 * sin(v * 3.14159 + t * 0.09));
+          float glow = 0.5 + 0.5 * sin(v * 6.28318 + 1.0);
+          vec3 col = page * 0.7 + tint * (0.15 + 0.45 * glow) + vec3(1.0) * pow(glow, 8.0) * 0.15;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "cells", name: "Stained cells",
+      blurb: "Voronoi cells of coloured glass, seams lit, each pane breathing at its own pace.",
+      frag: `
+        vec3 vor(vec2 g) {
+          vec2 id = floor(g), f = fract(g); float d1 = 8.0, d2 = 8.0, hid = 0.0;
+          for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+            vec2 o = vec2(float(i), float(j)); vec2 cell = id + o; vec2 h = hash2(cell);
+            vec2 c = o + 0.5 + 0.4 * sin(time * (0.05 + 0.001 * floor(h.x * 80.0)) + h * 6.28);
+            float d = length(f - c);
+            if (d < d1) { d2 = d1; d1 = d; hid = hash(cell + 1.7); } else if (d < d2) d2 = d;
+          }
+          return vec3(d1, d2, hid);
+        }
+        void main() {
+          vec2 p = coords();
+          vec3 v = vor(p * 6.0 + vec2(0.0, 0.6 * sin(time * 0.013)));
+          float edge = 1.0 - smoothstep(0.0, 0.08, v.y - v.x);
+          float inner = smoothstep(0.0, 0.5, v.x);
+          vec3 tint = mix(primary, secondary, v.z);
+          float pulse = 0.5 + 0.5 * sin(time * 0.3 + v.z * 6.28);
+          vec3 col = page * 0.85 + tint * (0.06 + 0.10 * pulse) * (1.0 - 0.6 * inner);
+          col += tint * edge * 0.55 + vec3(1.0) * edge * edge * 0.12;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "rain", name: "Rain on glass",
+      blurb: "Drops running down the pane in three depths, each trailing a wet streak.",
+      frag: `
+        float layer(vec2 p, float cols, float k, float seed, float rad) {
+          float span = aspect() + 0.3;
+          float gx = p.x * cols + seed;
+          float cx = floor(gx), fx = (fract(gx) - 0.5) / cols;
+          float hx = hash(vec2(cx, seed));
+          float s = saw(k * (1.0 + floor(hx * 3.0)));
+          float acc = 0.0;
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float h = hash(vec2(cx, seed + 3.0 + fi));
+            float y = (0.5 - fract(h + s)) * span;
+            float x = (hash(vec2(cx, seed + 9.0 + fi)) - 0.5) * 0.6 / cols;
+            vec2 d = vec2(fx - x, p.y - y);
+            float r = rad * (0.7 + 0.6 * h);
+            float head = smoothstep(r, r * 0.5, length(d * vec2(1.0, 0.7)));
+            float trail = smoothstep(r * 0.5, 0.0, abs(d.x)) * smoothstep(0.0, r * 0.5, d.y) * exp(-d.y / (r * 8.0));
+            acc += head + trail * 0.5;
+          }
+          return acc;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float g = smoothstep(-0.5 * a, 0.5 * a, p.y);
+          vec3 tint = mix(primary, secondary, g);
+          vec3 col = page * 0.85 + tint * 0.07 * fbm(p * 3.0 + vec2(0.3 * sin(time * 0.011), 0.5 * sin(time * 0.007)));
+          float near = layer(p, 6.0, 60.0, 0.0, 0.03);
+          float mid = layer(p, 10.0, 40.0, 4.0, 0.018);
+          float far = layer(p, 16.0, 25.0, 8.0, 0.010);
+          col += mix(tint, vec3(1.0), 0.6) * near * 0.55 + tint * mid * 0.5 + tint * far * 0.35;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "horizon", name: "Neon horizon",
+      blurb: "A perspective grid rolling toward you under a banded sun.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float hy = -0.22 * a;
+          vec3 col = page * 0.85;
+          if (p.y > hy) {
+            float g = (p.y - hy) / (0.5 * a - hy);
+            col += mix(primary, secondary, g) * 0.08 * (1.0 - g);
+            vec2 sd = p - vec2(0.0, hy + 0.2); float sr = 0.16;
+            float sun = smoothstep(sr, sr - 0.008, length(sd));
+            float bands = smoothstep(0.35, 0.65, 0.5 + 0.5 * sin(sd.y * 90.0 - time * 0.9));
+            bands = mix(1.0, bands, smoothstep(0.03, -0.08, sd.y));
+            col += mix(primary, secondary, smoothstep(-sr, sr, sd.y)) * sun * bands;
+            col += primary * 0.3 * exp(-length(sd) * 4.0);
+            vec2 sg = p * 30.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+            float star = smoothstep(0.08, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.8, hash(id + 2.2))
+                       * (0.5 + 0.5 * sin(time * 0.7 + h.y * 6.28));
+            col += vec3(1.0) * star * smoothstep(0.1, 0.5, g);
+          } else {
+            float z = hy - p.y;
+            float depth = 0.06 / (z + 0.003);
+            float u = p.x * depth * 3.0;
+            float v = depth * 2.0 + saw(240.0);
+            float lw = 0.03 * depth;
+            float lx = 1.0 - smoothstep(0.0, lw, min(fract(u), 1.0 - fract(u)));
+            float ly = 1.0 - smoothstep(0.0, lw * 0.6, min(fract(v), 1.0 - fract(v)));
+            float fade = smoothstep(0.0, 0.06, z) * exp(-z * 0.5);
+            vec3 tint = mix(secondary, primary, smoothstep(0.0, 0.5, z));
+            col += tint * max(lx, ly) * fade * 1.3 + vec3(1.0) * max(lx, ly) * fade * 0.25 + tint * 0.08 * fade;
+          }
+          col += mix(primary, secondary, 0.5) * 0.35 * exp(-abs(p.y - hy) * 30.0);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "smoke", name: "Smoke",
+      blurb: "Wisps rising from the bottom edge, lit by the accents, thinning as they climb.",
+      frag: `
+        float wisp(vec2 p) {
+          vec2 q = p + vec2(0.5 * sin(p.y * 1.3 + time * 0.11) + 0.3 * sin(p.y * 2.9 - time * 0.07), 0.0);
+          float s = sin(q.x * 3.0 + q.y * 0.5 + time * 0.13) * sin(q.y * 1.7 - time * 0.21 + q.x * 0.6);
+          s += 0.5 * sin(q.x * 6.1 - q.y * 1.1 - time * 0.17) * sin(q.y * 3.3 - time * 0.29);
+          return s;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 q = p * 2.2; q.y -= time * 0.15;
+          float s = wisp(q) + 0.6 * wisp(q * 1.7 + vec2(3.1, 0.0));
+          float grain = fbm(p * 5.0 + vec2(0.7 * sin(time * 0.019), 0.9 * sin(time * 0.023)));
+          float ridge = 1.0 - abs(2.0 * grain - 1.0);
+          float density = smoothstep(-0.1, 1.3, s) * (0.25 + 1.1 * ridge * ridge);
+          float up = smoothstep(-0.5 * a, 0.5 * a, p.y);
+          density *= 1.0 - 0.75 * up;
+          vec3 tint = mix(primary, secondary, up);
+          vec3 col = page * 0.85 + tint * 0.12 * (1.0 - up);
+          col += mix(tint, vec3(0.8, 0.82, 0.9), 0.45) * density * 0.85;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "circuit", name: "Circuit traces",
+      blurb: "A diagonal trace maze with pulses of signal running along it, drifting slowly upward.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float N = 32.0;
+          vec2 g = p * 12.0 + vec2(0.0, saw(6.0) * N);
+          vec2 id = mod(floor(g), N); vec2 f = fract(g);
+          float dir = step(0.5, hash(id));
+          float d = dir < 0.5 ? abs(f.x - f.y) : abs(f.x + f.y - 1.0);
+          d *= 0.7071;
+          float trace = 1.0 - smoothstep(0.02, 0.05, d);
+          vec2 fc = f - 0.5; float pad = 1.0 - smoothstep(0.07, 0.10, length(abs(fc) - 0.5));
+          pad *= step(0.35, hash(id + 5.5));
+          float along = dir < 0.5 ? (g.x + g.y) : (g.x - g.y);
+          float perp = dir < 0.5 ? (g.y - g.x) : (g.x + g.y);
+          float ph = hash(vec2(mod(floor(perp), N), 3.3));
+          float pulse = smoothstep(0.12, 0.0, abs(fract(along / 8.0 - saw(300.0) + ph) - 0.5));
+          vec3 tint = mix(primary, secondary, hash(id + 9.1));
+          vec3 col = page * 0.85 + tint * 0.05;
+          col += tint * trace * 0.28 + tint * pad * 0.35;
+          col += mix(tint, vec3(1.0), 0.5) * trace * pulse * 0.9;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "warp", name: "Star warp",
+      blurb: "Streaks racing outward from the centre and stretching as they go.",
+      frag: `
+        float streaks(vec2 p, float M, float seed, float k, out float hue) {
+          float ang = atan(p.y, p.x) / 6.28318 + 0.5;
+          float sec = floor(ang * M + seed), fa = fract(ang * M + seed) - 0.5;
+          float h = hash(vec2(sec, seed)), h2 = hash(vec2(sec, seed + 5.0));
+          hue = hash(vec2(sec, seed + 11.0));
+          float r = length(p);
+          float phase = fract(h + saw(k * (1.0 + floor(h2 * 2.0))));
+          float rs = phase * phase * 2.2;
+          float len = 0.04 + 0.6 * phase * phase;
+          float along = r - rs;
+          float tail = smoothstep(-len, 0.0, along) * (1.0 - smoothstep(0.0, 0.01, along));
+          float side = abs(fa) * (6.28318 / M) * r;
+          float line = smoothstep(0.005 + 0.007 * phase, 0.0, side);
+          return line * tail * (0.35 + 0.9 * phase);
+        }
+        void main() {
+          vec2 p = coords(); float h1, h2, h3;
+          float s1 = streaks(p, 26.0, 0.0, 30.0, h1);
+          float s2 = streaks(p, 42.0, 0.37, 45.0, h2);
+          float s3 = streaks(p, 70.0, 0.71, 60.0, h3);
+          float r = length(p);
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.18 * exp(-r * 2.5);
+          col += mix(primary, secondary, h1) * s1 * 1.3 + mix(primary, secondary, h2) * s2 + mix(primary, secondary, h3) * s3 * 0.8;
+          col += vec3(1.0) * (s1 * s1 + s2 * s2) * 0.5;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "swell", name: "Ocean swell",
+      blurb: "Stacked wave silhouettes rolling across, near ones in the primary, far ones in the secondary.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec3 col = page * 0.85 + secondary * 0.05;
+          float rows = 8.0;
+          for (int i = 0; i < 8; i++) {
+            float fi = float(i);
+            float depth = fi / (rows - 1.0);
+            float base = 0.5 * a - (fi + 0.6) * a / rows;
+            float amp = 0.25 * a / rows * (0.5 + depth);
+            float h = base + amp * (sin(p.x * 6.0 + time * 0.31 + fi * 1.3)
+                                    + 0.5 * sin(p.x * 11.0 - time * 0.23 + fi * 2.1)
+                                    + 0.3 * sin(p.x * 19.0 + time * 0.47 + fi));
+            float below = smoothstep(0.004, -0.004, p.y - h);
+            float crest = exp(-pow((p.y - h) * 120.0, 2.0));
+            vec3 tint = mix(secondary, primary, depth);
+            float shade = 0.6 + 0.4 * smoothstep(-0.25 * a / rows, 0.0, p.y - h);
+            vec3 body = page * 0.85 + tint * (0.10 + 0.22 * depth) * shade;
+            col = mix(col, body, below);
+            col += mix(tint, vec3(1.0), 0.6) * crest * (0.3 + 0.5 * depth);
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "tunnel", name: "Wormhole",
+      blurb: "A ribbed tunnel rushing past, the far end glowing, the eye drifting off centre.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 c = vec2(0.12 * sin(time * 0.07), 0.1 * a * sin(time * 0.053));
+          vec2 d = p - c; float r = length(d); float ang = atan(d.y, d.x) / 6.28318;
+          float depth = 0.15 / (r + 0.02);
+          float z = depth + saw(120.0) * 8.0;
+          float ring = 1.0 - smoothstep(0.0, 0.05, min(fract(z), 1.0 - fract(z)));
+          float seg = fract(ang * 16.0 + 0.5 * sin(time * 0.05));
+          float spoke = 1.0 - smoothstep(0.0, 0.05, min(seg, 1.0 - seg));
+          float tile = hash(vec2(mod(floor(z), 8.0), floor(ang * 16.0 + 0.5 * sin(time * 0.05))));
+          tile = smoothstep(0.55, 0.95, tile);
+          float fog = exp(-depth * 0.22) * smoothstep(1.3, 0.35, r);
+          vec3 tint = mix(primary, secondary, 0.5 + 0.5 * sin(z * 0.7854));
+          vec3 col = page * 0.85 + tint * tile * fog * 0.35;
+          col += tint * ring * fog * 0.55 + mix(tint, vec3(1.0), 0.4) * spoke * fog * 0.25;
+          col += mix(primary, secondary, 0.5) * exp(-r * 9.0) * 0.9 + vec3(1.0) * exp(-r * 30.0) * 0.6;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "skyline", name: "Night skyline",
+      blurb: "Three parallax rows of towers with flickering windows under a moon.",
+      frag: `
+        float towers(vec2 p, float cols, float k, float base, float amp, float seed, out float win) {
+          float N = 64.0;
+          float g = p.x * cols + saw(k) * N + seed;
+          float id = mod(floor(g), N);
+          float h = base + amp * hash(vec2(id, seed));
+          float inside = step(p.y, h);
+          vec2 w = vec2(fract(g) * 3.0, (p.y - base) * 34.0);
+          vec2 wid = vec2(mod(floor(g) * 3.0 + floor(w.x), N * 3.0), floor(w.y));
+          float lit = step(0.55, hash(wid + seed));
+          float flick = 0.7 + 0.3 * sin(time * (0.2 + 0.001 * floor(hash(wid + 2.0) * 900.0)) + hash(wid) * 6.28);
+          float pane = step(0.25, fract(w.x)) * step(fract(w.x), 0.75) * step(0.3, fract(w.y)) * step(fract(w.y), 0.7);
+          win = inside * lit * pane * flick * step(p.y, h - 0.02);
+          return inside;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float hy = -0.2 * a;
+          float up = smoothstep(hy, 0.5 * a, p.y);
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.08 * (1.0 - up);
+          vec2 sg = p * 36.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.85, hash(id + 2.2))
+               * (0.4 + 0.6 * sin(time * 0.6 + h.y * 6.28)) * up;
+          vec2 md = p - vec2(0.28, hy + 0.55 * (0.5 * a - hy));
+          col += mix(secondary, vec3(1.0), 0.7) * smoothstep(0.06, 0.055, length(md)) * 0.9 + secondary * 0.25 * exp(-length(md) * 8.0);
+          float w1, w2, w3;
+          float t1 = towers(p, 14.0, 4.0, hy + 0.05, 0.42, 1.0, w1);
+          float t2 = towers(p, 9.0, 8.0, hy + 0.02, 0.30, 2.0, w2);
+          float t3 = towers(p, 6.0, 14.0, hy, 0.18, 3.0, w3);
+          col = mix(col, page * 0.6 + secondary * 0.12, t1); col += secondary * w1 * 0.5;
+          col = mix(col, page * 0.45 + mix(primary, secondary, 0.5) * 0.06, t2); col += mix(primary, secondary, 0.5) * w2 * 0.7;
+          col = mix(col, page * 0.3, t3); col += mix(primary, vec3(1.0), 0.3) * w3 * 0.9;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "sonar", name: "Sonar sweep",
+      blurb: "A radar sweep circling a ringed scope; contacts light up as the beam passes and fade.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 d = p - vec2(0.0, -0.05 * a); float r = length(d); float ang = atan(d.y, d.x);
+          float sweep = saw(90.0) * 6.28318 - 3.14159;
+          float behind = mod(sweep - ang, 6.28318);
+          float beam = exp(-behind * 1.6) * smoothstep(1.4, 0.6, r);
+          float rings = 1.0 - smoothstep(0.0, 0.006, abs(fract(r * 6.0) - 0.5) / 6.0);
+          float cross = max(1.0 - smoothstep(0.0, 0.004, abs(d.x)), 1.0 - smoothstep(0.0, 0.004, abs(d.y)));
+          vec3 tint = mix(primary, secondary, 0.5);
+          vec3 col = page * 0.85 + secondary * 0.05 * smoothstep(1.2, 0.0, r);
+          col += secondary * (rings * 0.22 + cross * 0.12) * smoothstep(1.2, 0.3, r);
+          col += tint * beam * 0.6;
+          for (int i = 0; i < 12; i++) {
+            float fi = float(i); vec2 h = hash2(vec2(fi, 4.2));
+            vec2 c = vec2((h.x - 0.5) * 0.85, (h.y - 0.5) * 0.85 * min(a, 1.6)) + 0.03 * vec2(sin(time * 0.05 + fi), cos(time * 0.041 + fi));
+            float ca = atan(c.y - d.y + p.y + 0.05 * a - p.y, c.x - 0.0);
+            ca = atan(c.y, c.x);
+            float since = mod(sweep - ca, 6.28318);
+            float blip = exp(-since * 0.9) * smoothstep(0.02, 0.0, length(d - c) - 0.004);
+            float halo = exp(-since * 0.9) * exp(-length(d - c) * 60.0) * 0.5;
+            col += mix(primary, vec3(1.0), 0.4) * (blip + halo) * 1.4;
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "code", name: "Code rain",
+      blurb: "Columns of blocky glyphs lit by falling heads, the trail fading above each one.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float cols = 16.0, rows = 16.0 * 1.6;
+          float gx = p.x * cols; float cx = floor(gx); float fx = fract(gx);
+          float gy = p.y * rows; float cy = floor(gy); float fy = fract(gy);
+          float glyph = step(0.5, hash(vec2(cx, cy) + vec2(floor(fx * 3.0), floor(fy * 3.0)) * 0.37 + 11.0));
+          glyph *= step(0.12, fx) * step(fx, 0.88) * step(0.1, fy) * step(fy, 0.9);
+          vec3 col = page * 0.85;
+          for (int i = 0; i < 2; i++) {
+            float fi = float(i);
+            float h = hash(vec2(cx, 7.0 + fi));
+            float s = saw(20.0 * (1.0 + floor(hash(vec2(cx, 3.0)) * 3.0)));
+            float head = (0.5 - fract(h + s)) * (a + 0.6);
+            float above = (p.y - head) * rows;
+            float trail = smoothstep(-1.0, 0.0, above) * exp(-above * 0.25) * step(0.0, above + 1.0);
+            float isHead = step(abs(above), 1.0) * smoothstep(0.2, 0.0, abs(fy - 0.5) - 0.3);
+            vec3 tint = mix(primary, secondary, hash(vec2(cx, 9.0 + fi)));
+            col += tint * glyph * trail * 0.6 + vec3(1.0) * glyph * isHead * 0.7;
+          }
+          col += mix(primary, secondary, 0.5) * glyph * 0.04;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "blackhole", name: "Event horizon",
+      blurb: "An accretion disc swirling round a black hole, one side Doppler-bright, a thin photon ring.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 d = p - vec2(0.0, -0.02 * a);
+          float rin = 0.13;
+          vec2 q = vec2(d.x, d.y * 2.8); float r = length(q); float ang = atan(q.y, q.x);
+          float disc = smoothstep(rin, rin + 0.02, r) * exp(-(r - rin) * 3.2);
+          float swirl = 0.55 + 0.45 * sin(ang * 3.0 + r * 26.0 - time * 0.45);
+          swirl *= 0.7 + 0.3 * sin(ang * 7.0 - r * 40.0 + time * 0.31);
+          float doppler = 1.0 + 0.7 * cos(ang);
+          float hole = smoothstep(rin + 0.005, rin - 0.005, length(d));
+          float photon = exp(-pow((length(d) - rin - 0.006) * 140.0, 2.0));
+          float top = smoothstep(0.0, 0.05, d.y);
+          vec3 tint = mix(primary, secondary, smoothstep(rin, 0.6, r));
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.06 * exp(-length(d) * 2.0);
+          vec3 discCol = tint * disc * swirl * doppler * 1.1 + vec3(1.0, 0.95, 0.9) * pow(disc * swirl * doppler, 3.0) * 0.5;
+          col += discCol * (1.0 - 0.75 * top * hole);
+          col = mix(col, vec3(0.0), hole * (1.0 - 0.4 * top));
+          col += mix(vec3(1.0), tint, 0.3) * photon * 0.9;
+          vec2 sg = p * 34.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.86, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28)) * (1.0 - disc) * (1.0 - hole);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "fireflies", name: "Fireflies",
+      blurb: "A dark meadow at night with two dozen fireflies wandering and pulsing.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float up = smoothstep(-0.5 * a, 0.5 * a, p.y);
+          float grass = fbm(vec2(p.x * 6.0, p.y * 1.5 + 0.3 * sin(time * 0.017)));
+          vec3 col = page * 0.85 + secondary * 0.06 * (1.0 - up) * grass + secondary * 0.03 * up;
+          for (int i = 0; i < 24; i++) {
+            float fi = float(i); vec2 h = hash2(vec2(fi, 6.6));
+            vec2 c = vec2((h.x - 0.5) * 0.95, (h.y - 0.6) * a * 0.9);
+            c += 0.06 * vec2(sin(time * (0.05 + 0.001 * floor(h.x * 90.0)) + fi), sin(time * (0.04 + 0.001 * floor(h.y * 70.0)) + fi * 2.0));
+            float pulse = pow(0.5 + 0.5 * sin(time * (0.3 + 0.001 * floor(h.x * 400.0)) + h.y * 6.28), 5.0);
+            float dd = length(p - c);
+            float glow = pulse * (exp(-dd * dd * 9000.0) + 0.25 * exp(-dd * 40.0));
+            col += mix(primary, vec3(1.0, 0.95, 0.7), 0.5) * glow * 1.3;
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "helix", name: "Helix",
+      blurb: "A double helix turning on the vertical axis, rungs between the strands, near side brighter.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float k = 4.5, R = 0.24;
+          float ph = p.y * k + time * 0.4;
+          float x1 = R * sin(ph), z1 = cos(ph), x2 = -x1, z2 = -z1;
+          float w1 = 0.010 + 0.006 * z1, w2 = 0.010 + 0.006 * z2;
+          float s1 = smoothstep(w1, w1 * 0.4, abs(p.x - x1)), s2 = smoothstep(w2, w2 * 0.4, abs(p.x - x2));
+          float spacing = 0.09;
+          float yr = (floor(p.y / spacing) + 0.5) * spacing;
+          float phr = yr * k + time * 0.4;
+          float xa = R * sin(phr), xb = -xa;
+          float rung = smoothstep(0.004, 0.0, abs(p.y - yr) - 0.003) * step(min(xa, xb), p.x) * step(p.x, max(xa, xb));
+          float rz = 0.5 + 0.5 * cos(phr) * sign(p.x);
+          vec3 c1 = primary * (0.55 + 0.45 * z1) + vec3(1.0) * max(z1, 0.0) * 0.25;
+          vec3 c2 = secondary * (0.55 + 0.45 * z2) + vec3(1.0) * max(z2, 0.0) * 0.25;
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.05 * exp(-abs(p.x) * 5.0);
+          col += mix(primary, secondary, 0.5) * rung * (0.35 + 0.35 * rz);
+          if (z1 < z2) { col = mix(col, c1, s1); col = mix(col, c2, s2); } else { col = mix(col, c2, s2); col = mix(col, c1, s1); }
+          col += primary * exp(-abs(p.x - x1) * 40.0) * 0.12 * (0.5 + 0.5 * z1) + secondary * exp(-abs(p.x - x2) * 40.0) * 0.12 * (0.5 + 0.5 * z2);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "crt", name: "Lost signal",
+      blurb: "Colour bars on a failing tube: scanlines, a rolling bar, tearing and snow.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float tear = 0.012 * sin(p.y * 40.0 + time * 3.0) * smoothstep(0.7, 1.0, sin(p.y * 7.0 - time * 1.3));
+          float roll = fract(p.y / a + 0.5 - saw(200.0));
+          vec2 q = p + vec2(tear + 0.03 * smoothstep(0.02, 0.0, abs(roll - 0.5) - 0.03), 0.0);
+          float bar = floor((q.x + 0.5) * 7.0);
+          vec3 bars = mix(primary, secondary, fract(bar * 0.38 + 0.2));
+          bars *= 0.35 + 0.25 * step(0.5, fract(bar * 0.5));
+          float snow = hash(floor(q * vec2(220.0, 220.0 * a)) + vec2(floor(sin(time * 9.0) * 50.0), floor(cos(time * 7.0) * 50.0)));
+          float scan = 0.82 + 0.18 * sin(q.y * 900.0);
+          float rollGlow = exp(-pow((roll - 0.5) * 6.0, 2.0));
+          vec3 col = page * 0.85 + bars * 0.32;
+          col = mix(col, vec3(snow), 0.05 + 0.2 * smoothstep(0.6, 1.0, sin(time * 0.9)));
+          col += vec3(0.9, 0.95, 1.0) * rollGlow * 0.18;
+          col *= scan;
+          float vig = smoothstep(0.85, 0.35, length(p * vec2(1.0, 1.0 / a)) * 1.2);
+          col *= 0.4 + 0.6 * vig;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "flames", name: "Flames",
+      blurb: "A fire burning up from the bottom edge, primary in the body, secondary at the tips.",
+      frag: `
+        float tongue(vec2 q) {
+          float s = sin(q.x * 3.0 + q.y * 0.5 + time * 0.13) * sin(q.y * 1.7 - time * 0.21 + q.x * 0.6);
+          s += 0.5 * sin(q.x * 6.1 - q.y * 1.1 - time * 0.17) * sin(q.y * 3.3 - time * 0.29);
+          s += 0.35 * sin(q.x * 9.3 + q.y * 2.1 + time * 0.23) * sin(q.y * 5.1 - time * 0.41);
+          return s;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 q = p * 2.4; q.y -= time * 0.5;
+          q.x += 0.25 * sin(p.y * 3.0 + time * 0.31) + 0.12 * sin(p.y * 7.0 - time * 0.47);
+          float s = tongue(q) + 0.5 * tongue(q * 1.9 + vec2(2.0, 0.0));
+          float grain = fbm(p * 6.0 + vec2(0.0, -0.9 * sin(time * 0.05)));
+          float h = (p.y + 0.5 * a) / a;
+          float body = smoothstep(0.2 + 1.9 * h, 1.6 + 1.9 * h, s + 0.8 + 0.6 * grain);
+          float heat = smoothstep(0.0, 0.55, body);
+          vec3 tint = mix(primary, secondary, smoothstep(0.1, 0.5, h));
+          vec3 col = page * 0.85 + primary * 0.14 * (1.0 - h) * (1.0 - h);
+          col += tint * heat * 0.9 + mix(tint, vec3(1.0, 0.95, 0.8), 0.7) * pow(body, 3.0) * (1.0 - h) * 0.7;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "storm", name: "Storm",
+      blurb: "Low cloud, sheets of rain, and forked lightning that lights the whole sky when it strikes.",
+      frag: `
+        float bolt(vec2 p, float seed, float flash, float top) {
+          float x = 0.3 * (fbm(vec2(p.y * 4.0 + seed * 7.0, seed)) - 0.5) + 0.08 * (noise(vec2(p.y * 30.0 + seed * 3.0, seed + 1.0)) - 0.5);
+          float on = step(p.y, top) * step(-0.5 * aspect(), p.y);
+          float core = exp(-abs(p.x - x) * 260.0) * on;
+          float glow = exp(-abs(p.x - x) * 30.0) * on;
+          return (core * 1.2 + glow * 0.35) * flash;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float f1 = sin(time * 0.37) + sin(time * 0.61) + 0.5 * sin(time * 1.3);
+          float flash1 = smoothstep(1.6, 2.1, f1);
+          float f2 = sin(time * 0.29 + 1.0) + sin(time * 0.53 + 2.0) + 0.5 * sin(time * 1.7);
+          float flash2 = smoothstep(1.6, 2.1, f2);
+          float seed1 = floor(sin(time * 0.037) * 5.0), seed2 = floor(sin(time * 0.029 + 1.0) * 5.0) + 20.0;
+          float lit = flash1 + flash2;
+          float cloud = fbm(vec2(p.x * 3.0 + 0.6 * sin(time * 0.013), p.y * 2.0 + 0.3 * sin(time * 0.011)));
+          float up = smoothstep(-0.5 * a, 0.5 * a, p.y);
+          vec3 tint = mix(primary, secondary, 0.5);
+          vec3 col = page * 0.85 + tint * 0.26 * cloud * (0.3 + 0.7 * up) + secondary * 0.04;
+          col += vec3(0.85, 0.9, 1.0) * lit * (0.15 + 0.35 * cloud) * (0.4 + 0.6 * up);
+          float rain = smoothstep(0.75, 1.0, noise(vec2(p.x * 160.0 + p.y * 12.0, p.y * 4.0 + saw(400.0) * 16.0)));
+          col += mix(secondary, vec3(1.0), 0.5) * rain * (0.06 + 0.3 * lit);
+          col += mix(secondary, vec3(1.0), 0.7) * (bolt(p - vec2(-0.18, 0.0), seed1, flash1, 0.35 * a) + bolt(p - vec2(0.22, 0.0), seed2, flash2, 0.25 * a));
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "galaxy", name: "Spiral galaxy",
+      blurb: "A barred spiral seen at a tilt, arms turning slowly around a bright core.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 d = p - vec2(0.0, -0.03 * a);
+          float rot = time * 0.02; mat2 m = mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
+          vec2 q = m * d; q.y *= 1.7;
+          float r = length(q); float ang = atan(q.y, q.x);
+          float arms = 0.5 + 0.5 * sin(ang * 2.0 - log(r + 0.02) * 5.0 + time * 0.04);
+          arms = pow(arms, 2.5);
+          float dust = fbm(m * d * 9.0 + 5.0);
+          float density = arms * exp(-r * 4.5) * (0.5 + 0.8 * dust) + exp(-r * 14.0) * 0.8;
+          vec3 tint = mix(primary, secondary, smoothstep(0.05, 0.45, r));
+          vec3 col = page * 0.85 + secondary * 0.04;
+          col += tint * density * 0.9 + vec3(1.0, 0.95, 0.85) * exp(-r * 22.0) * 0.7;
+          col += mix(secondary, vec3(1.0), 0.6) * smoothstep(0.55, 0.8, dust) * arms * exp(-r * 4.0) * 0.35;
+          vec2 sg = p * 40.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.82, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28));
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "terrain", name: "Wire terrain",
+      blurb: "Ridge lines of a wireframe landscape scrolling toward you under a glowing horizon.",
+      frag: `
+        float land(float x, float z) {
+          return sin(x * 1.3 + z * 0.3927) * 0.6 + sin(x * 2.7 - z * 0.7854 + 1.0) * 0.3
+               + sin(x * 0.7 + z * 0.19635 + 2.0) * 0.8 + sin(x * 5.1 + z * 1.1781) * 0.12;
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float hy = 0.05 * a;
+          float s = saw(60.0);
+          vec3 tint = mix(primary, secondary, 0.5);
+          vec3 col = page * 0.85 + secondary * 0.12 * exp(-abs(p.y - hy) * 6.0) * step(hy, p.y);
+          col += tint * 0.5 * exp(-abs(p.y - hy) * 60.0);
+          vec2 sg = p * 34.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.85, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28)) * step(hy, p.y);
+          float prev = -10.0;
+          for (int i = 0; i < 16; i++) {
+            float z = float(15 - i) - s;
+            float zz = z + 1.2;
+            float xw = p.x * zz * 2.2;
+            float y = hy - 0.6 / zz + 0.16 * land(xw, z) / zz;
+            float depth = zz / 16.0;
+            vec3 lc = mix(primary, secondary, depth);
+            float below = step(p.y, y);
+            col = mix(col, page * 0.85 + lc * 0.05, below);
+            float line = exp(-abs(p.y - y) * (260.0 + 500.0 * depth));
+            col += lc * line * (1.1 - 0.7 * depth) + vec3(1.0) * line * 0.15 * (1.0 - depth);
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "orbits", name: "Orbits",
+      blurb: "A ringed planet with three moons circling it, passing behind and in front.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 c = vec2(0.0, -0.08 * a); vec2 d = p - c;
+          float R = 0.17;
+          float r = length(d);
+          float sphere = smoothstep(R, R - 0.004, r);
+          float z = sqrt(max(R * R - dot(d, d), 0.0)) / R;
+          vec3 n = vec3(d / R, z);
+          vec3 L = normalize(vec3(-0.6, 0.5, 0.6));
+          float diff = max(dot(n, L), 0.0);
+          float band = 0.5 + 0.5 * sin(d.y * 60.0 + 0.6 * sin(d.x * 30.0 + time * 0.05));
+          vec3 pc = mix(primary, secondary, band * 0.5) * (0.12 + 0.8 * diff);
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.05;
+          vec2 sg = p * 34.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.84, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28));
+          vec2 q = vec2(d.x, d.y * 3.2); float rr = length(q);
+          float ring = smoothstep(0.22, 0.24, rr) * smoothstep(0.42, 0.40, rr) * (0.5 + 0.5 * sin(rr * 90.0));
+          ring *= 0.6 + 0.4 * smoothstep(0.30, 0.31, rr);
+          vec3 ringCol = mix(secondary, vec3(1.0), 0.4) * ring * 0.55;
+          float front = step(0.0, -d.y);
+          col += ringCol * (1.0 - sphere) + ringCol * sphere * front * 0.0;
+          col = mix(col, pc, sphere * (1.0 - front * ring * 0.0));
+          col += ringCol * front * sphere * 0.0;
+          col += ringCol * front;
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float rate = 0.3 - 0.08 * fi; float orb = 0.28 + 0.1 * fi;
+            float ph = time * rate + fi * 2.1;
+            vec2 mp = c + vec2(cos(ph) * orb, sin(ph) * orb * 0.32);
+            float mz = sin(ph);
+            float mr = 0.014 + 0.006 * fi;
+            float moon = smoothstep(mr, mr - 0.003, length(p - mp));
+            float hidden = step(mz, 0.0) * sphere;
+            vec3 mc = mix(primary, secondary, fi * 0.5) * (0.5 + 0.5 * max(dot(normalize(vec3((p - mp) / mr, sqrt(max(1.0 - dot((p - mp) / mr, (p - mp) / mr), 0.0)))), L), 0.0)) + vec3(0.3);
+            col = mix(col, mc, moon * (1.0 - hidden));
+          }
+          col += mix(primary, secondary, 0.5) * exp(-max(r - R, 0.0) * 25.0) * 0.18 * (1.0 - sphere);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "ripples", name: "Ripples",
+      blurb: "Rain on a still pond from above: rings spreading from each drop and fading out.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec3 tint = mix(primary, secondary, smoothstep(-0.5 * a, 0.5 * a, p.y));
+          float shimmer = fbm(p * 5.0 + vec2(0.4 * sin(time * 0.021), 0.4 * sin(time * 0.017)));
+          vec3 col = page * 0.85 + tint * 0.08 * shimmer + secondary * 0.03;
+          float height = 0.0;
+          for (int i = 0; i < 9; i++) {
+            float fi = float(i); vec2 h = hash2(vec2(fi, 3.3));
+            vec2 c = vec2((h.x - 0.5) * 0.95, (h.y - 0.5) * a * 0.95) + 0.05 * vec2(sin(time * 0.031 + fi), cos(time * 0.023 + fi));
+            float k = 30.0 + 10.0 * floor(hash(vec2(fi, 8.8)) * 3.0);
+            float ph = fract(h.x + saw(k));
+            float rad = ph * 0.55;
+            float dd = length(p - c);
+            float env = (1.0 - ph) * smoothstep(0.0, 0.1, ph);
+            height += sin((dd - rad) * 90.0) * exp(-pow((dd - rad) * 18.0, 2.0)) * env;
+          }
+          float light = height * 0.5;
+          col += tint * max(light, 0.0) * 1.2 + vec3(1.0) * max(light, 0.0) * 0.5;
+          col -= tint * max(-light, 0.0) * 0.6;
+          gl_FragColor = vec4(max(col, page * 0.5), 1.0);
+        }`,
+    },
+    {
+      id: "globe", name: "Hologram globe",
+      blurb: "A wireframe earth turning on a tilted axis, the far side ghosted, a scan band climbing it.",
+      frag: `
+        float grid(vec2 ll) {
+          vec2 g = abs(fract(ll * 12.0 / 3.14159) - 0.5);
+          return 1.0 - smoothstep(0.0, 0.06, min(g.x, g.y));
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 c = vec2(0.0, -0.06 * a); vec2 d = p - c; float R = 0.3;
+          float r = length(d);
+          float tilt = 0.4; mat2 T = mat2(cos(tilt), -sin(tilt), sin(tilt), cos(tilt));
+          vec2 e = T * d;
+          vec3 col = page * 0.85 + secondary * 0.04;
+          vec3 tint = mix(primary, secondary, 0.5);
+          float spin = time * 0.12;
+          if (r < R) {
+            float z = sqrt(R * R - dot(e, e));
+            float lat = asin(e.y / R);
+            float lonF = atan(e.x, z) + spin;
+            float lonB = atan(e.x, -z) + spin;
+            float front = grid(vec2(lonF, lat));
+            float back = grid(vec2(lonB, lat));
+            float fade = smoothstep(R, R * 0.5, r);
+            col += secondary * back * 0.18;
+            col += mix(secondary, vec3(1.0), 0.3) * front * (0.35 + 0.45 * fade);
+            float land = smoothstep(0.55, 0.62, fbm(vec2(lonF * 1.5, lat * 2.0) + 3.0));
+            col += primary * land * 0.35 * fade;
+            float scan = exp(-pow((e.y - (saw(80.0) - 0.5) * 2.4 * R) * 20.0, 2.0));
+            col += vec3(1.0) * scan * 0.25 * (0.4 + front);
+            col += tint * 0.06;
+          }
+          float rim = exp(-abs(r - R) * 60.0);
+          col += mix(secondary, vec3(1.0), 0.5) * rim * 0.6;
+          col += secondary * exp(-max(r - R, 0.0) * 6.0) * 0.12;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "lasers", name: "Laser show",
+      blurb: "Beams fanning from the two bottom corners through haze, crossing in white.",
+      frag: `
+        float beam(vec2 p, vec2 o, float ang) {
+          vec2 dir = vec2(cos(ang), sin(ang));
+          vec2 d = p - o; float along = dot(d, dir); float side = abs(d.x * dir.y - d.y * dir.x);
+          return exp(-side * 160.0) * step(0.0, along) * exp(-along * 0.6);
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float haze = fbm(p * 3.0 + vec2(0.5 * sin(time * 0.017), 0.3 * sin(time * 0.013) + 0.5 * sin(time * 0.009)));
+          vec3 col = page * 0.85 + mix(primary, secondary, 0.5) * 0.05 * haze;
+          vec2 L = vec2(-0.55, -0.52 * a), Rr = vec2(0.55, -0.52 * a);
+          float bl = 0.0, br = 0.0;
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            bl += beam(p, L, 0.35 + 0.28 * fi + 0.22 * sin(time * (0.23 + 0.03 * fi) + fi));
+            br += beam(p, Rr, 3.14159 - 0.35 - 0.28 * fi - 0.22 * sin(time * (0.19 + 0.03 * fi) + fi * 1.7));
+          }
+          float vol = 0.6 + 0.8 * haze;
+          col += primary * bl * vol * 0.9 + secondary * br * vol * 0.9;
+          col += vec3(1.0) * bl * br * 6.0;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "dunes", name: "Moonlit dunes",
+      blurb: "Sand ridges lit from one side under a starry sky, sharp crests, deep shadow behind them.",
+      frag: `
+        float sand(vec2 q) {
+          float h = sin(q.x * 3.0 + q.y * 1.2) * 0.5 + sin(q.x * 6.3 - q.y * 0.7 + 1.0) * 0.25 + sin(q.x * 1.4 + q.y * 2.6 + 2.0) * 0.7;
+          return h - 0.6 * abs(sin(q.x * 2.1 + q.y * 0.9));
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float hy = 0.22 * a;
+          vec3 sky = page * 0.85 + secondary * 0.1 * smoothstep(0.5 * a, hy, p.y);
+          vec2 sg = p * 34.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          sky += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.85, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28));
+          vec2 md = p - vec2(-0.3, hy + 0.6 * (0.5 * a - hy));
+          sky += mix(secondary, vec3(1.0), 0.75) * smoothstep(0.05, 0.046, length(md)) + secondary * 0.2 * exp(-length(md) * 9.0);
+          float depth = (hy - p.y) / (hy + 0.5 * a);
+          vec2 q = vec2(p.x * (1.0 + 3.0 * depth), depth * 4.0) + vec2(0.05 * sin(time * 0.011), 0.0);
+          float hgt = sand(q); float e = 0.01;
+          vec2 g = vec2(sand(q + vec2(e, 0.0)) - hgt, sand(q + vec2(0.0, e)) - hgt) / e;
+          vec3 n = normalize(vec3(-g.x * 0.25, -g.y * 0.25, 1.0));
+          vec3 Ld = normalize(vec3(-0.7, 0.4, 0.5));
+          float diff = max(dot(n, Ld), 0.0);
+          float ridge = exp(-abs(hgt + 0.3) * 6.0);
+          float grain = 0.9 + 0.1 * noise(q * 60.0 + 0.5 * sin(time * 0.03));
+          vec3 sandCol = mix(primary, secondary, 0.45) * (0.1 + 0.55 * diff) * grain + vec3(1.0) * ridge * diff * 0.1;
+          sandCol = mix(sandCol, sky, smoothstep(0.0, 0.03, -depth));
+          vec3 col = mix(sky, sandCol, step(0.0, depth));
+          col += mix(secondary, vec3(1.0), 0.5) * exp(-abs(p.y - hy) * 40.0) * 0.12;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "meteors", name: "Meteor shower",
+      blurb: "Bright heads streaking diagonally through a starfield, tails in the accents.",
+      frag: `
+        float streaks(vec2 p, float lanes, float k, float seed, float len, float wid) {
+          float ang = -0.9;
+          vec2 dir = vec2(cos(ang), sin(ang)), perp = vec2(-dir.y, dir.x);
+          float u = dot(p, dir), v = dot(p, perp);
+          float lane = floor(v * lanes + seed); float fv = (fract(v * lanes + seed) - 0.5) / lanes;
+          float h = hash(vec2(lane, seed)), h2 = hash(vec2(lane, seed + 4.0));
+          float s = saw(k * (1.0 + floor(h2 * 3.0)));
+          float head = (fract(h + s) - 0.5) * 3.0;
+          float along = u - head;
+          float tail = smoothstep(-len, 0.0, along) * (1.0 - smoothstep(0.0, 0.006, along));
+          float line = exp(-abs(fv - (h2 - 0.5) * 0.3 / lanes) * (1.0 / wid));
+          return tail * line * step(0.35, hash(vec2(lane, seed + 9.0)));
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec3 col = page * 0.85 + secondary * 0.04 * smoothstep(-0.5 * a, 0.5 * a, p.y);
+          vec2 sg = p * 40.0; vec2 id = floor(sg), f = fract(sg) - 0.5; vec2 h = hash2(id);
+          col += vec3(1.0) * smoothstep(0.07, 0.0, length(f - (h - 0.5) * 0.8)) * step(0.8, hash(id + 2.2)) * (0.3 + 0.5 * sin(time * 0.5 + h.y * 6.28));
+          float s1 = streaks(p, 9.0, 40.0, 0.0, 0.35, 0.004);
+          float s2 = streaks(p, 15.0, 60.0, 3.0, 0.22, 0.0025);
+          float s3 = streaks(p, 24.0, 80.0, 7.0, 0.12, 0.0015);
+          col += mix(primary, vec3(1.0), 0.5) * s1 * 1.2 + mix(secondary, vec3(1.0), 0.4) * s2 * 0.9 + mix(primary, secondary, 0.5) * s3 * 0.7;
+          col += vec3(1.0) * (s1 * s1 + s2 * s2) * 0.6;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "glitch", name: "Glitch",
+      blurb: "Chevrons in the two accents that hold still, then slip sideways in torn bands with colour split.",
+      frag: `
+        vec3 image(vec2 q) {
+          float v = sin((q.x * 2.0 + abs(q.y) * 1.5) * 12.0 + time * 0.3);
+          vec3 c = mix(primary, secondary, smoothstep(-0.3, 0.3, v));
+          return page * 0.85 + c * (0.06 + 0.11 * smoothstep(0.6, 0.9, abs(v)));
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          float band = floor(p.y * 28.0);
+          float hb = hash(vec2(band, 1.0));
+          float burst = smoothstep(0.86, 0.94, sin(time * 0.7 + hb * 6.28) + 0.35 * sin(time * 1.9 + hb * 3.0));
+          float shift = (hb - 0.5) * 0.25 * burst;
+          float thick = step(0.7, hash(vec2(floor(p.y * 7.0), 2.0))) * smoothstep(0.9, 0.97, sin(time * 0.41 + floor(p.y * 7.0)));
+          shift += thick * 0.08;
+          vec2 q = p + vec2(shift, 0.0);
+          float split = 0.012 * (burst + thick);
+          vec3 col = vec3(image(q + vec2(split, 0.0)).r, image(q).g, image(q - vec2(split, 0.0)).b);
+          float lines = step(0.8, hash(vec2(band, floor(sin(time * 3.0) * 4.0)))) * burst;
+          col = mix(col, vec3(0.85, 0.9, 1.0), lines * 0.5);
+          col *= 0.9 + 0.1 * sin(p.y * 700.0);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "scope", name: "Oscilloscope",
+      blurb: "Glowing traces on a graticule, each one a different mix of harmonics sliding past.",
+      frag: `
+        float trace(vec2 p, float y0, float f, float r, float seed) {
+          float y = y0 + 0.05 * sin(p.x * f + time * r + seed) + 0.025 * sin(p.x * f * 2.3 - time * r * 1.7 + seed)
+                  + 0.012 * sin(p.x * f * 5.1 + time * r * 0.6);
+          float env = 0.6 + 0.4 * sin(p.x * 3.0 + time * 0.1 + seed);
+          float d = abs(p.y - y) * (1.0 / (0.4 + env));
+          return exp(-d * 260.0) + 0.3 * exp(-d * 40.0);
+        }
+        void main() {
+          vec2 p = coords(); float a = aspect();
+          vec2 g = abs(fract(p * 8.0) - 0.5);
+          float grid = 1.0 - smoothstep(0.0, 0.05, min(g.x, g.y));
+          vec2 g2 = abs(fract(p * 40.0) - 0.5);
+          float tick = (1.0 - smoothstep(0.0, 0.2, min(g2.x, g2.y))) * step(0.44, max(g.x, g.y));
+          vec3 col = page * 0.85 + secondary * 0.05;
+          col += secondary * grid * 0.12 + secondary * tick * 0.06;
+          float rows = floor(a * 3.0) + 1.0;
+          for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            if (fi >= rows) break;
+            float y0 = -0.5 * a + (fi + 0.5) * a / rows;
+            vec3 tint = mix(primary, secondary, fract(fi * 0.37));
+            float t = trace(p, y0, 14.0 + 4.0 * fi, 0.5 + 0.11 * fi, fi * 1.7);
+            col += tint * t * 0.9 + vec3(1.0) * t * t * 0.3;
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "comet", name: "Comet passage",
+      blurb: "An icy nucleus drifting through distant stars, with a curved blue dust tail.",
+      frag: `
+        void main() {
+          vec2 p = coords();
+          vec2 stars = p * 55.0, cell = floor(stars);
+          float star = 1.0 - smoothstep(0.015, 0.06, length(fract(stars) - hash2(cell)));
+          vec3 col = page * 0.65 + vec3(star * step(0.82, hash(cell + 9.0)) * 0.6);
+          vec2 q = p - vec2(0.16 * sin(time * 0.013), 0.18 * sin(time * 0.017));
+          q = mat2(0.8, -0.6, 0.6, 0.8) * q;
+          float behind = max(0.0, -q.x);
+          float width = 0.008 + behind * 0.11;
+          float tail = exp(-pow((q.y - behind * behind * 0.32) / width, 2.0));
+          tail *= exp(-behind * 4.0) * (1.0 - smoothstep(-0.015, 0.025, q.x));
+          float dust = 0.75 + 0.25 * sin(behind * 65.0 + time * 0.4);
+          col += mix(primary, secondary, min(1.0, behind * 2.0)) * tail * dust;
+          col += mix(primary, vec3(1.0), 0.85) * exp(-length(q) * 100.0);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "pulsar", name: "Pulsar",
+      blurb: "Twin lighthouse beams sweeping from a bright neutron star through a quiet starfield.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float r = length(p);
+          float angle = time * 0.12;
+          vec2 q = mat2(cos(angle), -sin(angle), sin(angle), cos(angle)) * p;
+          float beam = exp(-abs(q.x) / (0.006 + abs(q.y) * 0.08)) * exp(-r * 1.8);
+          float halo = exp(-r * 16.0) * (0.8 + 0.2 * sin(time * 0.6));
+          vec2 sg = p * 48.0, cell = floor(sg);
+          float stars = (1.0 - smoothstep(0.02, 0.065, length(fract(sg) - hash2(cell)))) * step(0.85, hash(cell + 2.0));
+          vec3 col = page * 0.7 + vec3(stars * 0.55);
+          col += mix(primary, secondary, smoothstep(-0.1, 0.1, q.y)) * beam * 0.8;
+          col += primary * halo * 0.6 + vec3(0.9, 0.95, 1.0) * exp(-r * 120.0);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
+    {
+      id: "eclipse", name: "Solar eclipse",
+      blurb: "A dark lunar disc edged by a breathing corona and slowly curling solar rays.",
+      frag: `
+        void main() {
+          vec2 p = coords(); float r = length(p);
+          float angle = atan(p.y, p.x);
+          float rays = 0.65 + 0.2 * sin(angle * 9.0 + time * 0.08)
+                     + 0.15 * sin(angle * 17.0 - time * 0.06);
+          float edge = r - 0.19;
+          float corona = exp(-max(0.0, edge) * (19.0 - 7.0 * rays));
+          float outside = smoothstep(-0.003, 0.003, edge);
+          vec3 col = page * 0.55;
+          col += outside * mix(primary, secondary, rays) * corona * (0.3 + 0.7 * rays);
+          col += outside * vec3(1.0, 0.9, 0.75) * exp(-abs(edge) * 230.0);
+          col = mix(page * 0.12, col, outside);
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    },
   ];
   const byId = (id) => DESIGNS.find((d) => d.id === id) || DESIGNS[0];
 
@@ -409,7 +1324,7 @@
   // A scene owns one canvas and GL context and renders one design at a time.
   // budget caps the pixel count: this soft surface needs far fewer pixels than
   // the text above it.
-  function createScene(canvas, budget, designId) {
+  function createScene(canvas, budget, designId, cacheDesigns = false) {
     let gl = null;
     try {
       gl = canvas.getContext("webgl", {
@@ -418,7 +1333,8 @@
     } catch (error) { /* Keep the CSS color field if GPU access is disabled. */ }
     if (!gl) { canvas.style.visibility = "hidden"; return null; }
 
-    const scene = { canvas, design: byId(designId), ready: false, time: Math.random() * 100, palette: null, target: null };
+    const scene = { canvas, design: byId(designId), ready: false, time: Math.random() * 100, palette: null, target: null, paused: false };
+    const programs = new Map();
     let lost = false, buffer = null, show = null, sim = null, init = null, rd = null;
 
     function compile(type, source) {
@@ -448,12 +1364,11 @@
         shaders.forEach((shader) => gl.deleteShader(shader));
       }
       const uniforms = Object.fromEntries(names.map((key) => [key, gl.getUniformLocation(program, key)]));
-      return { program, uniforms };
+      return { program, uniforms, position: gl.getAttribLocation(program, "position") };
     }
-    function use({ program }) {
+    function use({ program, position }) {
       gl.useProgram(program);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      const position = gl.getAttribLocation(program, "position");
       gl.enableVertexAttribArray(position);
       gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
     }
@@ -539,20 +1454,30 @@
       }
     }
 
-    scene.resize = function () {
-      const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
+    scene.resize = function (width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight)) {
       const scale = Math.min(1, 960 / Math.max(width, height), Math.sqrt(budget / (width * height)));
-      canvas.width = Math.max(1, Math.round(width * scale));
-      canvas.height = Math.max(1, Math.round(height * scale));
+      const w = Math.max(1, Math.round(width * scale)), h = Math.max(1, Math.round(height * scale));
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
       if (scene.ready && scene.design.sim) setupTargets();
     };
     scene.setDesign = function (id) {
       const design = byId(id);
       if (design === scene.design && scene.ready) return;
+      if (cacheDesigns && scene.ready) {
+        programs.set(scene.design.id, { show, sim, init, rd, buffer });
+        show = sim = init = rd = buffer = null;
+        scene.ready = false;
+      }
       scene.design = design;
       if (lost) return;
-      build(design);
-      if (scene.ready && design.sim) setupTargets();
+      const cached = programs.get(design.id);
+      if (cached) {
+        ({ show, sim, init, rd, buffer } = cached);
+        programs.delete(design.id);
+        scene.ready = true;
+      } else build(design);
+      if (scene.ready && design.sim && !cacheDesigns) setupTargets();
     };
     // dt = 0 redraws the current state without advancing.
     scene.draw = function (dt) {
@@ -612,6 +1537,11 @@
     };
     scene.destroy = function () {
       teardown();
+      for (const cached of programs.values()) {
+        ({ show, sim, init, rd, buffer } = cached);
+        teardown();
+      }
+      programs.clear();
       scenes.delete(scene);
       const ext = gl.getExtension("WEBGL_lose_context");
       if (ext) ext.loseContext();
@@ -619,6 +1549,7 @@
     canvas.addEventListener("webglcontextlost", (event) => {
       event.preventDefault();
       lost = true;
+      programs.clear();
       scene.ready = false;
       rd = null; show = sim = init = null; buffer = null;
       canvas.style.visibility = "hidden";
@@ -646,9 +1577,28 @@
     // Follow elapsed time rather than slowing the flow on expensive frames.
     // Visibility changes reset last, so resuming never catches up hidden time.
     const dt = last === null ? 0 : Math.max(0, (now - last) / 1000);
+    if (last !== null && now - last < 1000 / 30 - 0.5) {
+      raf = requestAnimationFrame(frame);
+      return;
+    }
     last = now;
-    scenes.forEach((s) => s.draw(dt));
-    if (scenes.size) raf = requestAnimationFrame(frame);
+    let live = false;
+    scenes.forEach((s) => {
+      if (s.paused) return;
+      live = true;
+      s.elapsed = (s.elapsed || 0) + dt;
+      if (!s.interval || s.elapsed >= s.interval - 0.0005) {
+        s.draw(s.elapsed);
+        s.elapsed = 0;
+      }
+    });
+    if (live) raf = requestAnimationFrame(frame);
+  }
+  const anyLive = () => { let live = false; scenes.forEach((s) => { if (!s.paused) live = true; }); return live; };
+  // Start the loop if it is not running; a paused scene coming back to life
+  // must not redraw every other scene the way sync() does.
+  function wake() {
+    if (!raf && !document.hidden && !motion.matches && anyLive()) { last = null; raf = requestAnimationFrame(frame); }
   }
   function sync() {
     if (raf) cancelAnimationFrame(raf);
@@ -656,8 +1606,8 @@
     last = null;
     if (motion.matches) scenes.forEach((s) => { if (s.target) s.palette = s.target.map((c) => c.slice()); });
     if (!document.hidden) {
-      scenes.forEach((s) => s.draw(0));
-      if (scenes.size && !motion.matches) raf = requestAnimationFrame(frame);
+      scenes.forEach((s) => { s.elapsed = 0; if (!s.paused) s.draw(0); });
+      if (anyLive() && !motion.matches) raf = requestAnimationFrame(frame);
     }
   }
   document.addEventListener("visibilitychange", sync);
@@ -683,6 +1633,9 @@
     window.addEventListener("resize", () => { if (ground) { ground.resize(); ground.draw(0); } });
   }
 
+  let previewRenderer = null;
+  const previewTiles = new Set();
+
   window.HyteAmbient = {
     DESIGNS: DESIGNS.map(({ id, name, blurb }) => ({ id, name, blurb })),
     setPalette(primary, secondary) {
@@ -695,19 +1648,60 @@
       ground.resize();
       sync();
     },
-    // A small live tile for the settings page. Returns null without WebGL.
+    // Visible tiles share one WebGL context and copy small frames to 2D
+    // canvases. Compiled programs stay cached while browsing the gallery.
     preview(target, { design, primary, secondary }) {
-      const scene = createScene(target, 40000, design);
-      if (!scene) return null;
-      scene.setPalette(rgb(primary), rgb(secondary));
-      // The tile is usually created before it is laid out; follow its size.
+      const ctx = target.getContext("2d", { alpha: false });
+      if (!ctx) return null;
+      if (!previewRenderer) {
+        previewRenderer = createScene(document.createElement("canvas"), 12000, design, true);
+        if (!previewRenderer) return null;
+        scenes.delete(previewRenderer);
+      }
+      const tile = {
+        paused: false, interval: 1 / 15, time: Math.random() * 100,
+        palette: [rgb(primary), rgb(secondary)],
+        draw(dt) {
+          if (!previewRenderer || document.hidden) return;
+          tile.time = (tile.time + dt) % PERIOD;
+          // A fixed total pixel budget also bounds work on very large windows.
+          const w = Math.max(1, target.clientWidth), h = Math.max(1, target.clientHeight);
+          const scale = Math.min(1, Math.sqrt(Math.min(12000, 96000 / Math.max(1, previewTiles.size)) / (w * h)));
+          const width = Math.max(1, Math.floor(w * scale)), height = Math.max(1, Math.floor(h * scale));
+          if (target.width !== width) target.width = width;
+          if (target.height !== height) target.height = height;
+          previewRenderer.setDesign(design);
+          previewRenderer.resize(width, height);
+          previewRenderer.palette = tile.palette;
+          previewRenderer.target = tile.palette;
+          previewRenderer.time = (tile.time - dt + PERIOD) % PERIOD;
+          previewRenderer.draw(dt);
+          ctx.drawImage(previewRenderer.canvas, 0, 0, width, height);
+        },
+      };
+      previewTiles.add(tile);
+      scenes.add(tile);
       const observer = typeof ResizeObserver === "function"
-        ? new ResizeObserver(() => { scene.resize(); scene.draw(0); }) : null;
+        ? new ResizeObserver(() => tile.draw(0)) : null;
       if (observer) observer.observe(target);
-      sync();
+      tile.draw(0);
+      wake();
       return {
-        setPalette(p, s) { scene.setPalette(rgb(p), rgb(s)); if (motion.matches) sync(); },
-        destroy() { if (observer) observer.disconnect(); scene.destroy(); },
+        setPalette(p, s) {
+          if (p === primary && s === secondary) return;
+          primary = p; secondary = s;
+          tile.palette = [rgb(p), rgb(s)];
+          tile.draw(0);
+        },
+        destroy() {
+          if (observer) observer.disconnect();
+          scenes.delete(tile);
+          previewTiles.delete(tile);
+          if (!previewTiles.size && previewRenderer) {
+            previewRenderer.destroy();
+            previewRenderer = null;
+          }
+        },
       };
     },
   };

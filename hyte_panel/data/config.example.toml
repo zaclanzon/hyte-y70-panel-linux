@@ -51,8 +51,8 @@ file_keys = ["primary", "secondary"]
 preset = ""
 primary = [255, 0, 0]
 secondary = [0, 0, 255]
-# The animated ground behind the cards: liquid, ribbons, bokeh, caustics, ink,
-# satin, coral, lava, shafts, contours or hex. Previews on the settings page.
+# The animated ground behind the cards; one of the ids in config.py BACKGROUNDS
+# (liquid, ribbons, bokeh, caustics, ... 44 in all). Previews on the settings page.
 background = "liquid"
 
 [layout]
