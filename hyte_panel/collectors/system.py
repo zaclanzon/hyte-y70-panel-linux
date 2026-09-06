@@ -6,12 +6,42 @@ import os
 import platform
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 import psutil
 
 _CPU_TEMP_KEYS = ("k10temp", "zenpower", "coretemp", "cpu_thermal", "acpitz")
 _CPU_LABEL_PREF = ("Tctl", "Tdie", "Package id 0", "Core 0", "")
+_HWMON = Path("/sys/class/hwmon")
+
+
+def _cpu_temp_path() -> Path | None:
+    """Discover the CPU input without reading every GPU/disk temperature."""
+    chips: dict[str, list[tuple[str, Path]]] = {}
+    for directory in sorted(_HWMON.glob("hwmon*")):
+        for base in (directory, directory / "device"):
+            try:
+                name = (base / "name").read_text().strip()
+            except OSError:
+                continue
+            if name not in _CPU_TEMP_KEYS:
+                continue
+            for sensor in sorted(base.glob("temp*_input")):
+                try:
+                    label = sensor.with_name(sensor.name.replace("_input", "_label")).read_text().strip()
+                except OSError:
+                    label = ""
+                chips.setdefault(name, []).append((label, sensor))
+    for key in _CPU_TEMP_KEYS:
+        entries = chips.get(key, [])
+        for pref in _CPU_LABEL_PREF:
+            for label, sensor in entries:
+                if label == pref or (pref and label.startswith(pref)):
+                    return sensor
+        if entries:
+            return entries[0][1]
+    return None
 
 
 def _cpu_model() -> str:
@@ -32,9 +62,22 @@ class SystemCollector:
         self.iface = network_interface
         self.cpu_model = _cpu_model()
         self._last_net: tuple[float, int, int] | None = None
+        self._temp_path: Path | None = None
+        self._temp_discover_at = 0.0
         psutil.cpu_percent(interval=None)  # prime the counter
 
     def cpu_temp(self) -> float | None:
+        now = time.monotonic()
+        if now >= self._temp_discover_at:
+            self._temp_path = _cpu_temp_path()
+            self._temp_discover_at = now + 30
+        if self._temp_path is not None:
+            try:
+                return float(self._temp_path.read_text()) / 1000
+            except (OSError, ValueError):
+                self._temp_path = None
+                self._temp_discover_at = 0.0
+        # Keep psutil's thermal-zone and non-Linux fallback behavior.
         try:
             temps = psutil.sensors_temperatures()
         except (AttributeError, OSError):

@@ -140,11 +140,8 @@ class AgentRegistry:
     # ---- process scan ------------------------------------------------------------
 
     def _match(self, proc: psutil.Process) -> str | None:
-        try:
-            name = (proc.name() or "").lower()
-            cmdline = proc.cmdline()
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            return None
+        name = (proc.info.get("name") or "").lower()
+        cmdline = proc.info.get("cmdline") or []
         candidates = [name]
         for arg in cmdline[:3]:
             candidates.append(os.path.basename(arg).lower())
@@ -159,7 +156,7 @@ class AgentRegistry:
             return []
         found: list[AgentState] = []
         hooked_pids = set()
-        for p in psutil.process_iter(["pid", "name", "create_time"]):
+        for p in psutil.process_iter(["pid", "name", "cmdline"]):
             if p.pid == self._own_pid:
                 continue
             match = self._match(p)
@@ -176,8 +173,10 @@ class AgentRegistry:
             try:
                 cpu = p.cpu_percent(interval=None)
                 mem = p.memory_info().rss / 1024 / 1024
+                started = p.create_time()
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 cpu, mem = None, None
+                started = time.time()
             hooked_pids.add(p.pid)
             found.append(
                 AgentState(
@@ -188,7 +187,7 @@ class AgentRegistry:
                     cwd=cwd,
                     source="process",
                     pid=p.pid,
-                    started_at=p.info.get("create_time") or time.time(),
+                    started_at=started,
                     updated_at=time.time(),
                     cpu_percent=cpu,
                     memory_mb=mem,

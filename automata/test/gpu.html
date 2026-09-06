@@ -38,7 +38,35 @@ const report = (obj) => { const s = JSON.stringify(obj); try { window.webkit.mes
   }
   const gl = ca.engine.gl, glErr = gl.getError();
   const ok = results.every((r) => r.mismatch === 0 && r.mismatchAfterStamp === 0) && glErr === 0;
-  const out = { ok, glError: glErr, results };
+  ca.destroy();
+  const canvas = document.createElement("canvas");
+  document.body.appendChild(canvas);
+  const asyncEngine = new CA.GLEngine(canvas);
+  const rule = CACore.resolve(CA.RULES[0]);
+  asyncEngine.setRule(rule);
+  asyncEngine.resize(W, H, CACore.seedGrid(rule, W, H));
+  const expected = asyncEngine.read();
+  let asyncResult = asyncEngine.readAsync();
+  const queued = asyncResult === null;
+  // Advance the world while the copy is in flight: readback must retain the
+  // requested generation, not whichever texture is current at completion.
+  asyncEngine.step(3);
+  for (let i = 0; !asyncResult && i < 100; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    asyncResult = asyncEngine.readAsync();
+  }
+  const asyncMatches = !!asyncResult && diff(expected, asyncResult).n === 0;
+  asyncEngine.readAsync();
+  asyncEngine.resize(8, 8, new Uint8Array(8 * 8 * 4));
+  let resized = asyncEngine.readAsync();
+  for (let i = 0; !resized && i < 100; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    resized = asyncEngine.readAsync();
+  }
+  const resizeMatches = !!resized && resized.length === 256 && resized.every(x => x === 0);
+  const asyncError = asyncEngine.gl.getError();
+  asyncEngine.destroy();
+  const out = { ok: ok && queued && asyncMatches && resizeMatches && asyncError === 0, glError: glErr, asyncError, queued, asyncMatches, resizeMatches, results };
   document.getElementById("out").textContent = JSON.stringify(out, null, 1);
   report(out);
 })();

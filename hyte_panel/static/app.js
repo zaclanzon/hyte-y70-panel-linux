@@ -3,6 +3,16 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+  const markup = new WeakMap();
+  function setHTML(el, html) {
+    if (markup.get(el) === html) return;
+    el.innerHTML = html;
+    markup.set(el, html);
+  }
+  function setText(el, text) {
+    text = String(text);
+    if (el.textContent !== text) el.textContent = text;
+  }
 
   // ---- Icons (Feather-style paths, 24x24 viewBox) ------------------------------
   const ICONS = {
@@ -159,8 +169,8 @@
   // ---- Clock -----------------------------------------------------------------------
   function tickClock() {
     const now = new Date();
-    $("clock").textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    $("date").textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    setText($("clock"), now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    setText($("date"), now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }));
   }
   tickClock();
   setInterval(tickClock, 1000);
@@ -175,7 +185,7 @@
     const tray = $("tray-card");
     layout.forEach((w) => { const el = panel.querySelector(`.card[data-widget="${w}"]`); el.hidden = false; panel.insertBefore(el, tray); });
     cards().forEach((el) => { if (!layout.includes(el.dataset.widget)) el.hidden = true; });
-    if (ca) ca.setPaused(!layout.includes("automata"));
+    syncAutomataPause();
     drawTray();
     refreshEditTools();
   }
@@ -237,8 +247,8 @@
   function setEditing(on) {
     editing = on;
     document.body.classList.toggle("editing", on);
-    if (on) { ensureEditTools(); settingsCache = null; $("tray-card").hidden = false; refreshEditTools(); if (ca) ca.pause(); }
-    else { $("tray-card").hidden = true; if (ca && layout.includes("automata")) ca.play(); }
+    if (on) { ensureEditTools(); settingsCache = null; $("tray-card").hidden = false; refreshEditTools(); syncAutomataPause(); }
+    else { $("tray-card").hidden = true; syncAutomataPause(); }
   }
   $("gear").innerHTML = svg("sliders");
   $("gear").addEventListener("click", () => setEditing(!editing));
@@ -246,13 +256,13 @@
   doneBtn.className = "edit-done"; doneBtn.innerHTML = 'Done <span class="edit-status"></span>';
   doneBtn.addEventListener("click", () => setEditing(false));
   document.body.appendChild(doneBtn);
-  $("settings-url").textContent = `${location.origin}/settings`;
+  setText($("settings-url"), `${location.origin}/settings`);
 
   // ---- Config / apps ---------------------------------------------------------------
   let config = null;
   function applyConfig(cfg) {
     config = cfg;
-    $("version").textContent = `hyte-panel ${cfg.version}`;
+    setText($("version"), `hyte-panel ${cfg.version}`);
     const grid = $("apps-grid"); // absent while the automata card stands in for the apps card
     if (grid) {
       grid.innerHTML = "";
@@ -292,21 +302,25 @@
   }
 
   // ---- Snapshot rendering ----------------------------------------------------------
+  let weatherKey = "";
   function renderWeather(w) {
+    const key = JSON.stringify(w);
+    if (key === weatherKey) return;
+    weatherKey = key;
     const card = $("weather-card");
     if (!w) return;
     card.classList.toggle("offline", !w.ok);
     if (!w.ok) {
-      $("weather-desc").textContent = w.error ? `Weather unavailable: ${w.error}` : "Weather unavailable";
+      setText($("weather-desc"), w.error ? `Weather unavailable: ${w.error}` : "Weather unavailable");
       return;
     }
     const unit = w.units === "imperial" ? "°F" : "°C";
     const wind = w.units === "imperial" ? "mph" : "km/h";
     $("weather-icon").innerHTML = svg(w.icon);
-    $("weather-temp").textContent = Math.round(w.temp);
-    $("weather-unit").textContent = unit;
-    $("weather-desc").textContent = `${w.description}${w.label ? " · " + w.label : ""}`;
-    $("weather-meta").textContent = `Feels ${Math.round(w.feels_like)}${unit} · ${w.humidity}% humidity · ${Math.round(w.wind)} ${wind}`;
+    setText($("weather-temp"), Math.round(w.temp));
+    setText($("weather-unit"), unit);
+    setText($("weather-desc"), `${w.description}${w.label ? " · " + w.label : ""}`);
+    setText($("weather-meta"), `Feels ${Math.round(w.feels_like)}${unit} · ${w.humidity}% humidity · ${Math.round(w.wind)} ${wind}`);
     $("weather-days").innerHTML = (w.daily || []).map((d) => {
       const day = new Date(d.date + "T12:00:00").toLocaleDateString([], { weekday: "short" });
       return `<div class="weather-day"><span>${day}</span>${svg(d.icon)}<b>${Math.round(d.max)}°</b><span>${Math.round(d.min)}°</span></div>`;
@@ -315,16 +329,16 @@
 
   function renderSnapshot(s) {
     applyTheme(s.theme);
-    $("hostname").textContent = s.hostname || "";
-    $("uptime").textContent = fmtUptime(s.uptime_seconds);
+    setText($("hostname"), s.hostname || "");
+    setText($("uptime"), fmtUptime(s.uptime_seconds));
 
     const cpu = s.cpu;
-    $("cpu-model").textContent = cpu.model;
+    setText($("cpu-model"), cpu.model);
     cpuRing(cpu.percent);
     cpuSpark(cpu.percent);
-    $("cpu-temp").textContent = fmtTemp(cpu.temp_c);
-    $("cpu-freq").textContent = cpu.freq_mhz ? `${(cpu.freq_mhz / 1000).toFixed(2)} GHz` : "--";
-    $("cpu-load").textContent = cpu.load ? cpu.load[0].toFixed(2) : "--";
+    setText($("cpu-temp"), fmtTemp(cpu.temp_c));
+    setText($("cpu-freq"), cpu.freq_mhz ? `${(cpu.freq_mhz / 1000).toFixed(2)} GHz` : "--");
+    setText($("cpu-load"), cpu.load ? cpu.load[0].toFixed(2) : "--");
     const cores = $("cpu-cores");
     if (cores.childElementCount !== cpu.per_core.length) {
       cores.style.gridTemplateColumns = `repeat(${Math.min(cpu.per_core.length, 32)}, 1fr)`;
@@ -334,37 +348,37 @@
 
     const gpu = (s.gpus || [])[0];
     if (gpu) {
-      $("gpu-model").textContent = gpu.name;
+      setText($("gpu-model"), gpu.name);
       gpuRing(gpu.util_percent);
       gpuSpark(gpu.util_percent);
-      $("gpu-temp").textContent = fmtTemp(gpu.temp_c);
-      $("gpu-power").textContent = gpu.power_w == null ? "--" : `${Math.round(gpu.power_w)} W${gpu.power_limit_w ? " / " + Math.round(gpu.power_limit_w) : ""}`;
-      $("gpu-clock").textContent = gpu.clock_sm_mhz == null ? "--" : `${Math.round(gpu.clock_sm_mhz)} MHz`;
-      $("gpu-fan").textContent = gpu.fan_percent == null ? "--" : `${Math.round(gpu.fan_percent)}%`;
+      setText($("gpu-temp"), fmtTemp(gpu.temp_c));
+      setText($("gpu-power"), gpu.power_w == null ? "--" : `${Math.round(gpu.power_w)} W${gpu.power_limit_w ? " / " + Math.round(gpu.power_limit_w) : ""}`);
+      setText($("gpu-clock"), gpu.clock_sm_mhz == null ? "--" : `${Math.round(gpu.clock_sm_mhz)} MHz`);
+      setText($("gpu-fan"), gpu.fan_percent == null ? "--" : `${Math.round(gpu.fan_percent)}%`);
       const vram = gpu.mem_percent ?? 0;
       $("gpu-vram-bar").style.width = `${vram}%`;
       $("gpu-vram-bar").style.background = heat(vram);
       $("gpu-vram-bar").dataset.heat = vram;
-      $("gpu-vram").textContent = gpu.mem_used_mb == null ? "--" : `${(gpu.mem_used_mb / 1024).toFixed(1)} / ${(gpu.mem_total_mb / 1024).toFixed(0)} GB`;
+      setText($("gpu-vram"), gpu.mem_used_mb == null ? "--" : `${(gpu.mem_used_mb / 1024).toFixed(1)} / ${(gpu.mem_total_mb / 1024).toFixed(0)} GB`);
     } else {
-      $("gpu-model").textContent = "No NVIDIA GPU found";
+      setText($("gpu-model"), "No NVIDIA GPU found");
       gpuRing(null);
     }
 
     const mem = s.memory;
-    $("mem-total").textContent = fmtGB(mem.total);
+    setText($("mem-total"), fmtGB(mem.total));
     $("mem-bar").style.width = `${mem.percent}%`;
     $("mem-bar").style.background = heat(mem.percent);
     $("mem-bar").dataset.heat = mem.percent;
-    $("mem-value").textContent = `${fmtGB(mem.used)} (${Math.round(mem.percent)}%)`;
-    $("disk-rows").innerHTML = (s.disks || []).map((d) =>
+    setText($("mem-value"), `${fmtGB(mem.used)} (${Math.round(mem.percent)}%)`);
+    setHTML($("disk-rows"), (s.disks || []).map((d) =>
       `<div class="bar-row"><span class="bar-label">${d.mount}</span><div class="bar"><div class="bar-fill" data-heat="${d.percent}" style="width:${d.percent}%;background:${heat(d.percent)}"></div></div><span class="bar-value">${fmtGB(d.used)} / ${fmtGB(d.total)}</span></div>`
-    ).join("");
+    ).join(""));
 
-    $("net-iface").textContent = s.network.interface;
-    $("net-down").textContent = fmtBytes(s.network.down_bps, "/s");
-    $("net-up").textContent = fmtBytes(s.network.up_bps, "/s");
-    $("fans").innerHTML = (s.fans || []).map((f) => `<span class="fan">${f.name} <b>${f.rpm} rpm</b></span>`).join("");
+    setText($("net-iface"), s.network.interface);
+    setText($("net-down"), fmtBytes(s.network.down_bps, "/s"));
+    setText($("net-up"), fmtBytes(s.network.up_bps, "/s"));
+    setHTML($("fans"), (s.fans || []).map((f) => `<span class="fan">${f.name} <b>${f.rpm} rpm</b></span>`).join(""));
 
     renderWeather(s.weather);
     renderAgents(s.agents || []);
@@ -381,32 +395,37 @@
     const list = [...agentCache.values()];
     const el = $("agent-list");
     if (!list.length) {
-      el.innerHTML = '<div class="agent-empty">No agents detected. Start Claude Code, Codex or another agent, or send hook events to this panel.</div>';
-      $("agent-summary").textContent = "None running";
+      setHTML(el, '<div class="agent-empty">No agents detected. Start Claude Code, Codex or another agent, or send hook events to this panel.</div>');
+      setText($("agent-summary"), "None running");
       return;
     }
     const counts = {};
     list.forEach((a) => (counts[a.status] = (counts[a.status] || 0) + 1));
-    $("agent-summary").textContent = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(" · ");
-    el.innerHTML = list.map((a) => {
+    setText($("agent-summary"), Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(" · "));
+    setHTML(el, list.map((a) => {
       const side = a.source === "process"
         ? `${a.cpu_percent != null ? Math.round(a.cpu_percent) + "% cpu · " : ""}${a.memory_mb != null ? Math.round(a.memory_mb) + " MB" : ""}`
         : `${a.tools_used} tools · ${fmtAge(a.age_seconds)} ago`;
       return `<div class="agent ${a.status}"><span class="light"></span><div><div class="agent-name">${a.name}${a.project ? `<small>${a.project}</small>` : ""}</div><div class="agent-detail">${a.detail || ""}</div></div><div class="agent-side"><b>${a.status}</b>${side}</div></div>`;
-    }).join("");
+    }).join(""));
   }
 
   // ---- Idle dimming ------------------------------------------------------------------
-  let dimTimer = null;
-  function setupDim(seconds) {
-    const dim = $("dim");
-    if (dimTimer) clearTimeout(dimTimer);
-    if (!seconds || seconds <= 0) { dim.hidden = true; return; }
-    // The automata card stops stepping while the panel is dimmed.
-    const arm = () => { clearTimeout(dimTimer); dim.hidden = true; if (ca) ca.setPaused(false); dimTimer = setTimeout(() => { dim.hidden = false; if (ca) ca.setPaused(true); }, seconds * 1000); };
-    ["pointerdown", "touchstart", "keydown"].forEach((ev) => document.addEventListener(ev, arm, { passive: true }));
-    arm();
+  let dimTimer = null, dimSeconds = 0;
+  function syncAutomataPause() {
+    if (ca) ca.setPaused(editing || !layout.includes("automata") || !$("dim").hidden);
   }
+  function armDim() {
+    clearTimeout(dimTimer);
+    $("dim").hidden = true;
+    syncAutomataPause();
+    if (dimSeconds > 0) dimTimer = setTimeout(() => {
+      $("dim").hidden = false;
+      syncAutomataPause();
+    }, dimSeconds * 1000);
+  }
+  function setupDim(seconds) { dimSeconds = seconds; armDim(); }
+  ["pointerdown", "touchstart", "keydown"].forEach((ev) => document.addEventListener(ev, armDim, { passive: true }));
   document.addEventListener("contextmenu", (e) => e.preventDefault());
 
   // ---- Transport: WebSocket with polling fallback -------------------------------------
