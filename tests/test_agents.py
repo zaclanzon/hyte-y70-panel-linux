@@ -67,14 +67,14 @@ def test_stale_and_ended_agents_are_dropped():
 def test_process_scan_finds_matching_process():
     import subprocess
     import sys
-    import shutil
     import tempfile
 
-    # Run a copy of "sleep" named "codex" so the scanner has something to find.
+    # A script name works with both standalone and multicall coreutils hosts.
     with tempfile.TemporaryDirectory() as d:
-        fake = f"{d}/codex"
-        shutil.copy(shutil.which("sleep"), fake)
-        proc = subprocess.Popen([fake, "30"], cwd=d)
+        fake = f"{d}/codex.py"
+        with open(fake, "w") as script:
+            script.write("import time; time.sleep(30)\n")
+        proc = subprocess.Popen([sys.executable, fake], cwd=d)
         try:
             reg = AgentRegistry(patterns=["codex"], scan_processes=True)
             time.sleep(0.2)
@@ -85,4 +85,3 @@ def test_process_scan_finds_matching_process():
         finally:
             proc.kill()
             proc.wait()
-    assert sys.executable  # keep import used

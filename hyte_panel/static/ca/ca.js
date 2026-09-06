@@ -149,6 +149,7 @@
     /** Allocate a W x H world and load buf (RGBA8, or null for empty). */
     resize(W, H, buf) {
       const gl = this.gl;
+      this.cancelRead();
       for (const t of this.tex) gl.deleteTexture(t);
       for (const f of this.fb) gl.deleteFramebuffer(f);
       this.tex = []; this.fb = []; this.W = W; this.H = H; this.cur = 0;
@@ -169,11 +170,13 @@
     }
     load(buf) {
       const gl = this.gl;
+      this.cancelRead();
       gl.bindTexture(gl.TEXTURE_2D, this.tex[this.cur]);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.W, this.H, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, buf);
     }
     setRule(rule) {
       const gl = this.gl, u = this.u.step;
+      this.cancelRead();
       this.rule = rule;
       gl.useProgram(this.pStep);
       gl.uniform1i(u.u_family, rule.family);
@@ -220,6 +223,39 @@
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       return buf;
     }
+    cancelRead() {
+      if (this.readFence) this.gl.deleteSync(this.readFence);
+      if (this.readBuffer) this.gl.deleteBuffer(this.readBuffer);
+      this.readFence = this.readBuffer = null;
+    }
+    /** Queue statistics readback, then collect only after the GPU is done.
+        Public read() stays synchronous for export and reference tests. */
+    readAsync(buf) {
+      const gl = this.gl, bytes = this.W * this.H * 4;
+      if (!this.readFence) {
+        if (!this.readBuffer) {
+          this.readBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.readBuffer);
+          gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+        } else gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.readBuffer);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb[this.cur]);
+        gl.readPixels(0, 0, this.W, this.H, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.readFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        return null;
+      }
+      const ready = gl.clientWaitSync(this.readFence, 0, 0);
+      if (ready === gl.TIMEOUT_EXPIRED) return null;
+      if (ready === gl.WAIT_FAILED) { this.cancelRead(); return null; }
+      buf = buf && buf.length === bytes ? buf : new Uint8Array(bytes);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.readBuffer);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buf);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.deleteSync(this.readFence); this.readFence = null;
+      return buf;
+    }
     render(theme) {
       const gl = this.gl, u = this.u.draw, c = this.canvas;
       gl.useProgram(this.pDraw);
@@ -236,7 +272,7 @@
       gl.bindTexture(gl.TEXTURE_2D, this.tex[this.cur]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
-    destroy() { const ext = this.gl.getExtension("WEBGL_lose_context"); if (ext) ext.loseContext(); }
+    destroy() { this.cancelRead(); const ext = this.gl.getExtension("WEBGL_lose_context"); if (ext) ext.loseContext(); }
   }
 
   // ---- CPU engine (fallback + reference) --------------------------------------------
@@ -356,6 +392,18 @@
     };
     const theme = { young: [0, 0, 1], old: [1, 0, 0], dying: [0.7, 0.2, 1] };
     const readBuf = { buf: null };
+    let raf = 0, suspended = false;
+    function wake() {
+      if (!raf && !st.destroyed && !suspended && !document.hidden) raf = requestAnimationFrame(frame);
+    }
+    function invalidate() { st.dirty = true; wake(); }
+    function visibilityChanged() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      st.last = 0;
+      wake();
+    }
+    document.addEventListener("visibilitychange", visibilityChanged);
 
     function setTheme(t) {
       if (!t) {
@@ -366,7 +414,7 @@
       theme.old = parseColor(t.primary, theme.old);
       theme.young = parseColor(t.secondary, theme.young);
       theme.dying = parseColor(t.blend, theme.dying);
-      st.dirty = true;
+      invalidate();
     }
     setTheme(o.theme);
 
@@ -389,7 +437,7 @@
       fitCanvas(W, H);
       const buf = Core.seedGrid(st.rule, W, H);
       if (engine.W !== W || engine.H !== H) engine.resize(W, H, buf); else engine.load(buf);
-      st.gen = 0; st.acc = 0; st.hashes = []; st.stale = 0; st.sceneAt = performance.now(); st.dirty = true;
+      st.gen = 0; st.acc = 0; st.hashes = []; st.stale = 0; st.sceneAt = performance.now(); invalidate();
       if (reason !== "silent") flash(`${st.rule.name}`, st.rule.rule || (st.rule.wolfram ? `rule ${st.rule.wolfram}` : `${st.rule.states} states`));
     }
     function clear() {
@@ -397,7 +445,7 @@
       fitCanvas(W, H);
       const buf = new Uint8Array(W * H * 4);
       if (engine.W !== W || engine.H !== H) engine.resize(W, H, buf); else engine.load(buf);
-      st.gen = 0; st.hashes = []; st.stale = 0; st.dirty = true;
+      st.gen = 0; st.hashes = []; st.stale = 0; invalidate();
     }
     function setRule(idOrRule, opt = {}) {
       const base = typeof idOrRule === "string" ? Core.RULES.find((r) => r.id === idOrRule) : idOrRule;
@@ -409,7 +457,7 @@
       rulePill.querySelector("small").textContent = st.rule.rule || (st.rule.family === FAMILY.ELEMENTARY ? `rule ${st.rule.wolfram}` : `${st.rule.states} states · T${st.rule.threshold}`);
       speedPill.querySelector("b").textContent = `${st.gps}/s`;
       if (!opt.keepWorld) seed(opt.silent ? "silent" : "rule");
-      st.dirty = true;
+      invalidate();
     }
     function randomRule() {
       // Random Life-like rule biased toward interesting ones: always B3 or B2, never B0/B1.
@@ -422,9 +470,9 @@
       return { id: `random:${rule}`, name: "Random", rule, density: 0.3 + Math.random() * 0.2, speed: 15 };
     }
     function setSpeed(gps) { st.gps = gps; speedPill.querySelector("b").textContent = `${gps}/s`; }
-    function play() { st.playing = true; playBtn.innerHTML = svg("pause"); st.last = 0; }
+    function play() { st.playing = true; playBtn.innerHTML = svg("pause"); st.last = 0; wake(); }
     function pause() { st.playing = false; playBtn.innerHTML = svg("play"); updateStatus(); }
-    function stepOnce() { pause(); engine.step(1); st.gen++; st.dirty = true; }
+    function stepOnce() { pause(); engine.step(1); st.gen++; invalidate(); }
 
     // ---- painting
     const brushRadius = () => Math.max(1, Math.round((5 * st.dpr) / o.cell));
@@ -438,9 +486,9 @@
     function dot(gx, gy, state) {
       const r = brushRadius(), d = 2 * r + 1;
       const s = state === undefined ? 1 : state;
-      if (st.rule.family === FAMILY.ELEMENTARY) { engine.paint(gx - r, 0, d, 1, block(d, 1, s)); return; }
+      if (st.rule.family === FAMILY.ELEMENTARY) { engine.paint(gx - r, 0, d, 1, block(d, 1, s)); invalidate(); return; }
       engine.paint(gx - r, gy - r, d, d, block(d, d, s));
-      st.dirty = true;
+      invalidate();
     }
     function line(a, b, state) {
       const dx = b[0] - a[0], dy = b[1] - a[1], n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / Math.max(1, brushRadius())));
@@ -451,7 +499,7 @@
       const b = new Uint8Array(w * h * 4);
       rows.forEach((row, ry) => { const y = h - 1 - ry; for (let x = 0; x < row.length; x++) if (row[x] === "O") b[(y * w + x) * 4] = 1; });
       engine.paint(gx - (w >> 1), gy - (h >> 1), w, h, b);
-      st.dirty = true;
+      invalidate();
     }
     function inject(count, rowFromTop) {
       const b = block(1, 1, 1);
@@ -460,7 +508,7 @@
         const gy = st.rule.family === FAMILY.ELEMENTARY ? 0 : rowFromTop ? engine.H - 1 - Math.floor(Math.random() * 3) : Math.floor(Math.random() * engine.H);
         engine.paint(gx, gy, 1, 1, b);
       }
-      st.dirty = true;
+      invalidate();
     }
 
     const pointers = new Map();
@@ -552,8 +600,11 @@
       status.textContent = `${st.playing ? "" : "paused · "}gen ${st.gen.toLocaleString()} · ${pct}% · ${engine.kind}${st.attractOn ? " · auto" : ""}`;
     }
     function measure(now) {
+      const reusable = readBuf.buf && readBuf.buf.length === engine.W * engine.H * 4 ? readBuf.buf : null;
+      const buf = engine.readAsync ? engine.readAsync(reusable) : engine.read(reusable);
+      if (!buf) return;
       st.lastMeasure = now;
-      readBuf.buf = engine.read(readBuf.buf && readBuf.buf.length === engine.W * engine.H * 4 ? readBuf.buf : null);
+      readBuf.buf = buf;
       const m = Core.measure(st.rule, readBuf.buf, engine.W, engine.H);
       st.pop = m.pop; st.cells = m.cells;
       const repeat = st.hashes.includes(m.hash);
@@ -581,7 +632,7 @@
 
     // ---- reactive hooks (hardware snapshot from the panel)
     function onSnapshot(snap) {
-      if (!o.reactive || !snap) return;
+      if (!o.reactive || !snap || suspended || document.hidden) return;
       if (snap.cpu && snap.cpu.percent != null) st.cpuFactor = 0.6 + (Math.min(100, snap.cpu.percent) / 100) * 1.6;
       if (snap.network && snap.network.down_bps != null && st.playing) {
         const n = Math.min(40, Math.floor((snap.network.down_bps + (snap.network.up_bps || 0)) / 40000));
@@ -598,18 +649,20 @@
 
     // ---- main loop
     function frame(now) {
-      if (st.destroyed) return;
-      requestAnimationFrame(frame);
+      raf = 0;
+      if (st.destroyed || suspended || document.hidden) return;
       if (st.playing) {
         if (!st.last) st.last = now;
         const dt = Math.min(0.25, (now - st.last) / 1000);
         st.last = now;
         st.acc += dt * st.gps * (st.attractOn ? st.cpuFactor : 1);
         const n = Math.min(MAX_STEPS_PER_FRAME, Math.floor(st.acc));
-        if (n > 0) { st.acc -= n; engine.step(n); st.gen += n; st.dirty = true; }
+        if (n > 0) { st.acc -= n; engine.step(n); st.gen += n; invalidate(); }
       }
-      if (now - st.lastMeasure > 1000) { measure(now); attractTick(now); if (st.themeCss) setTheme(null); }
+      if ((st.playing || st.dirty || engine.readFence) && now - st.lastMeasure > 1000) { measure(now); if (st.playing) attractTick(now); if (st.themeCss) setTheme(null); }
       if (st.dirty && now - (st.lastRender || 0) >= 1000 / RENDER_FPS) { engine.render(theme); st.dirty = false; st.lastRender = now; }
+      if (st.playing || st.dirty || engine.readFence) wake();
+      else if (raf) { cancelAnimationFrame(raf); raf = 0; }
     }
 
     // ---- resize handling
@@ -627,14 +680,14 @@
     // ---- go
     setRule(o.rule, { silent: true });
     if (!st.playing) pause();
-    requestAnimationFrame(frame);
+    wake();
 
     return {
       el, get engine() { return engine; }, get rule() { return st.rule; }, get gen() { return st.gen; }, get state() { return st; },
       setTheme, setRule, randomRule, setSpeed, play, pause, toggle: () => (st.playing ? pause() : play()),
       step: stepOnce, seed, clear, stamp, inject, onSnapshot, read: () => engine.read(),
-      setPaused(hidden) { if (hidden) { st.wasPlaying = st.playing; pause(); } else if (st.wasPlaying) play(); },
-      destroy() { st.destroyed = true; ro.disconnect(); document.removeEventListener("pointerdown", outsideTap, true); hideMenu(); engine.destroy(); el.innerHTML = ""; el.classList.remove("ca"); },
+      setPaused(hidden) { if (suspended !== !!hidden) { suspended = !!hidden; visibilityChanged(); } },
+      destroy() { st.destroyed = true; cancelAnimationFrame(raf); clearTimeout(resizeTimer); clearTimeout(toastTimer); document.removeEventListener("visibilitychange", visibilityChanged); ro.disconnect(); document.removeEventListener("pointerdown", outsideTap, true); hideMenu(); engine.destroy(); el.innerHTML = ""; el.classList.remove("ca"); },
     };
   }
 
