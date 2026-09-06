@@ -22,7 +22,7 @@ The panel is a small web app that runs on your PC.
 
 ## Install
 
-Any Linux distribution with a desktop session. Python 3.11+. NVIDIA driver for
+A Linux desktop with Python 3.11+, GTK4 and WebKitGTK 6. NVIDIA driver for
 GPU data. The installer knows the package names for Debian, Ubuntu, Fedora,
 Arch, openSUSE, Alpine and Void; on anything else it tells you what to install.
 
@@ -31,6 +31,12 @@ git clone https://github.com/zaclanzon/hyte-y70-panel-linux.git ~/src/hyte-y70-p
 cd ~/src/hyte-y70-panel
 scripts/install.sh        # system packages (sudo once), a venv, config, app grid entry, autostart
 ```
+
+`scripts/install.sh --dry-run` shows the package plan; `--no-packages` uses
+preinstalled host packages. Arch includes a full upgrade. Immutable hosts need
+native host configuration. The weekly [Linux setup checks](docs/linux-maintenance.md)
+verify current packages on Ubuntu 24.04, Debian, Fedora, Arch and openSUSE; Alpine
+and Void adapters remain unverified.
 
 Then rotate the HYTE screen to portrait in your display settings, run
 `scripts/map-touch.sh` so touches land on it, and open **HYTE Panel** from

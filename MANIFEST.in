@@ -1,0 +1,2 @@
+recursive-include scripts *.sh *.py
+include config.example.toml
