@@ -60,6 +60,8 @@ def run_gtk(cfg: Config, url: str) -> int:
                 chosen = m
         return chosen
 
+    Gtk.Window.set_default_icon_name("io.github.hyte_panel")
+
     class PanelApp(Gtk.Application):
         def __init__(self):
             super().__init__(application_id="io.github.hyte_panel.Kiosk")

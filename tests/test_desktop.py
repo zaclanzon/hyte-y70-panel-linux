@@ -7,13 +7,19 @@ from hyte_panel.__main__ import main
 def test_install_desktop_entry_writes_launcher_and_icon(tmp_path, monkeypatch):
     monkeypatch.setattr(desktop.shutil, "which", lambda name: None)  # no cache updaters
     paths = desktop.install_desktop_entry("/opt/venv/bin/hyte-panel", data_home=tmp_path)
-    assert [p.name for p in paths] == ["io.github.hyte_panel.desktop", "io.github.hyte_panel.svg"]
+    assert [p.name for p in paths] == ["io.github.hyte_panel.desktop", "io.github.hyte_panel.svg",
+                                     "io.github.hyte_panel.Settings.desktop", "io.github.hyte_panel.Kiosk.desktop"]
     text = paths[0].read_text()
     assert "Exec=/opt/venv/bin/hyte-panel control" in text
     assert "Exec=/opt/venv/bin/hyte-panel settings" in text
     assert "Icon=io.github.hyte_panel" in text and "__EXEC__" not in text
     assert paths[1].read_text().startswith("<svg")
     assert paths[0].parent == tmp_path / "applications"
+    for entry in paths[2:]:
+        assert "NoDisplay=true" in entry.read_text()
+        assert "Icon=io.github.hyte_panel" in entry.read_text()
+        assert f"StartupWMClass={entry.stem}" in entry.read_text()
+    assert "Exec=/opt/venv/bin/hyte-panel window" in paths[3].read_text()
 
 
 def test_install_desktop_entry_respects_xdg_data_home(tmp_path, monkeypatch):
