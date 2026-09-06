@@ -14,52 +14,40 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/hyte-panel"
 VENV="$DATA_DIR/venv"
-DO_PACKAGES=1
-[[ "${1:-}" == "--no-packages" ]] && DO_PACKAGES=0
-
-# ---- 1. system packages ----------------------------------------------------
-if [[ $DO_PACKAGES == 1 ]]; then
-  . /etc/os-release 2>/dev/null || true
-  like="${ID:-} ${ID_LIKE:-}"
-  SUDO=""; [[ $EUID -ne 0 ]] && SUDO="sudo"
-  echo "==> Installing system packages (${ID:-unknown distro})"
-  case "$like" in
-    *debian*|*ubuntu*)
-      $SUDO apt-get update -qq
-      $SUDO apt-get install -y --no-install-recommends python3 python3-venv python3-pip python3-gi python3-gi-cairo \
-        gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-adw-1 lm-sensors curl ;;
-    *fedora*|*rhel*|*centos*|*nobara*)
-      $SUDO dnf install -y python3 python3-pip python3-gobject gtk4 webkitgtk6.0 libadwaita lm_sensors curl ;;
-    *arch*|*manjaro*|*endeavouros*|*cachyos*)
-      $SUDO pacman -Sy --needed --noconfirm python python-gobject gtk4 webkitgtk-6.0 libadwaita lm_sensors curl ;;
-    *suse*|*opensuse*)
-      $SUDO zypper --non-interactive install python3 python3-gobject python3-gobject-Gdk \
-        typelib-1_0-Gtk-4_0 typelib-1_0-WebKit-6_0 typelib-1_0-Adw-1 sensors curl ;;
-    *alpine*)
-      $SUDO apk add python3 py3-gobject3 gtk4.0 webkit2gtk-6.0 libadwaita lm-sensors curl ;;
-    *void*)
-      $SUDO xbps-install -Sy python3 python3-gobject gtk4 webkitgtk6 libadwaita lm_sensors curl ;;
-    *)
-      cat <<MSG
-Unknown distribution. Install these with your package manager, then rerun with --no-packages:
-  python3 (3.11+) with venv, PyGObject (python gi), GTK4 typelib, WebKitGTK 6.0 typelib,
-  libadwaita typelib (optional), lm_sensors, curl
-MSG
-      exit 1 ;;
+DO_PACKAGES=1; PACKAGES_ONLY=0; DO_SETUP=1; LINUX_SETUP_DRY_RUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-packages) DO_PACKAGES=0 ;;
+    --packages-only) PACKAGES_ONLY=1 ;;
+    --no-setup) DO_SETUP=0 ;;
+    --dry-run) LINUX_SETUP_DRY_RUN=1 ;;
+    -h|--help) echo 'Usage: scripts/install.sh [--no-packages] [--packages-only] [--no-setup] [--dry-run]'; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
+done
+. "$REPO_DIR/scripts/linux-deps.sh"
+if [[ "$LINUX_SETUP_DRY_RUN" == 0 && "$EUID" == 0 && "$PACKAGES_ONLY" == 0 ]]; then
+  echo 'Run as your desktop user; only system packages use sudo.' >&2; exit 1
 fi
+[[ "$DO_PACKAGES" == 0 ]] || linux_dependencies
+[[ "$LINUX_SETUP_DRY_RUN" == 0 ]] || { echo 'Dry run: packages, private venv, and user desktop setup; no changes made.'; exit 0; }
+# Select the interpreter that sees the distribution's GI bindings.
+PYTHON=/usr/bin/python3
+[[ -x "$PYTHON" ]] || PYTHON=$(command -v python3)
+"$PYTHON" "$REPO_DIR/scripts/check-linux-deps.py"
+[[ "$PACKAGES_ONLY" == 0 ]] || exit 0
 
 # ---- 2. virtualenv ------------------------------------------------------------
 echo "==> Creating virtualenv in $VENV"
 mkdir -p "$DATA_DIR"
 # --system-site-packages lets the venv see the distro's PyGObject (gi).
-python3 -m venv --system-site-packages "$VENV"
+"$PYTHON" -m venv --system-site-packages "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
 "$VENV/bin/pip" install --quiet "$REPO_DIR[nvidia]"
 
 # ---- 3. config, app grid entry, startup -----------------------------------------
 echo "==> Setting up"
-"$VENV/bin/hyte-panel" setup
+if [[ "$DO_SETUP" == 1 ]]; then "$VENV/bin/hyte-panel" setup; fi
 
 cat <<MSG
 
