@@ -9,6 +9,7 @@ Terminal=false
 Categories=System;Monitor;
 Keywords=hyte;panel;dashboard;monitor;sensors;touch;
 StartupNotify=true
+StartupWMClass=io.github.hyte_panel
 Actions=settings;start;stop;
 
 [Desktop Action settings]

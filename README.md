@@ -68,6 +68,9 @@ systemctl --user restart hyte-panel      # or: hyte-panel run
 **Control window.** Open **HYTE Panel** from the app grid: running or not,
 Start / Stop / Restart, Settings, Open in browser, recent log. Right-click the
 icon for Settings, Start and Stop.
+The launcher and native windows use a glowing H screen logo. Settings and kiosk
+windows have matching hidden desktop entries so their taskbar icons resolve
+without adding duplicate entries to the app grid.
 
 **Choose your widgets.** Tap the sliders icon at the bottom of the panel. Every
 card gets up, down and hide buttons; hidden ones wait in a tray at the bottom.

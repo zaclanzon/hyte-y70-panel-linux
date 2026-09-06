@@ -155,7 +155,18 @@ def install_desktop_entry(exec_cmd: str | None = None, data_home: str | os.PathL
     p = icons / f"{APP_ID}.svg"
     shutil.copyfile(DATA_DIR / "hyte-panel.svg", p)
     written.append(p)
-    for tool, args in (("update-desktop-database", [str(apps)]), ("gtk-update-icon-cache", ["-q", "-t", str(base / "icons" / "hicolor")])):
+    # Settings and the kiosk have their own GTK app IDs. Hidden entries let
+    # GNOME associate those windows with the same logo without extra app-grid items.
+    for suffix, command, name in (("Settings", "settings", "HYTE Panel Settings"),
+                                  ("Kiosk", "window", "HYTE Panel")):
+        window_id = f"{APP_ID}.{suffix}"
+        p = apps / f"{window_id}.desktop"
+        p.write_text(
+            f"[Desktop Entry]\nType=Application\nName={name}\nExec={exec_cmd} {command}\n"
+            f"Icon={APP_ID}\nStartupWMClass={window_id}\nTerminal=false\nNoDisplay=true\n",
+            encoding="utf-8")
+        written.append(p)
+    for tool, args in (("update-desktop-database", [str(apps)]), ("gtk-update-icon-cache", ["-q", "-f", "-t", str(base / "icons" / "hicolor")])):
         exe = shutil.which(tool)
         if exe:
             subprocess.run([exe, *args], capture_output=True, timeout=30, check=False)
@@ -282,6 +293,7 @@ def _gtk():
         Adw.init()
     except (ImportError, ValueError):
         Adw = None
+    Gtk.Window.set_default_icon_name(APP_ID)
     return Gtk, Gdk, Gio, GLib, WebKit, Adw
 
 
