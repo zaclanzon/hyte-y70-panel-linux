@@ -85,6 +85,12 @@ systemctl --user status hyte-panel
 journalctl --user -u hyte-panel -f       # live log
 ```
 
+To pin the dashboard itself, search for **HYTE Dashboard** in the app grid
+and choose **Pin to Dash** (or **Add to Favorites**) from its right-click menu.
+This launcher opens the dashboard and starts its server. **HYTE Panel** opens
+the separate control window. For an existing installation, refresh the launchers
+after updating the package with `~/.local/share/hyte-panel/venv/bin/hyte-panel install-desktop`.
+
 Without systemd, run `~/.local/share/hyte-panel/venv/bin/hyte-panel run`; the
 autostart entry does the same at your next login.
 

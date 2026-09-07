@@ -16,10 +16,12 @@ def test_install_desktop_entry_writes_launcher_and_icon(tmp_path, monkeypatch):
     assert paths[1].read_text().startswith("<svg")
     assert paths[0].parent == tmp_path / "applications"
     for entry in paths[2:]:
-        assert "NoDisplay=true" in entry.read_text()
         assert "Icon=io.github.hyte_panel" in entry.read_text()
         assert f"StartupWMClass={entry.stem}" in entry.read_text()
-    assert "Exec=/opt/venv/bin/hyte-panel window" in paths[3].read_text()
+    assert "NoDisplay=true" in paths[2].read_text()
+    assert "NoDisplay=false" in paths[3].read_text()
+    assert "Name=HYTE Dashboard" in paths[3].read_text()
+    assert "Exec=/opt/venv/bin/hyte-panel run" in paths[3].read_text()
 
 
 def test_install_desktop_entry_respects_xdg_data_home(tmp_path, monkeypatch):
