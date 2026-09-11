@@ -155,15 +155,15 @@ def install_desktop_entry(exec_cmd: str | None = None, data_home: str | os.PathL
     p = icons / f"{APP_ID}.svg"
     shutil.copyfile(DATA_DIR / "hyte-panel.svg", p)
     written.append(p)
-    # Settings and the kiosk have their own GTK app IDs. Hidden entries let
-    # GNOME associate those windows with the same logo without extra app-grid items.
-    for suffix, command, name in (("Settings", "settings", "HYTE Panel Settings"),
-                                  ("Kiosk", "window", "HYTE Panel")):
+    # Match each window's GTK app ID. The dashboard must be visible for GNOME
+    # to offer pinning; `run` also starts its server when launched from the dock.
+    for suffix, command, name, hidden in (("Settings", "settings", "HYTE Panel Settings", True),
+                                          ("Kiosk", "run", "HYTE Dashboard", False)):
         window_id = f"{APP_ID}.{suffix}"
         p = apps / f"{window_id}.desktop"
         p.write_text(
             f"[Desktop Entry]\nType=Application\nName={name}\nExec={exec_cmd} {command}\n"
-            f"Icon={APP_ID}\nStartupWMClass={window_id}\nTerminal=false\nNoDisplay=true\n",
+            f"Icon={APP_ID}\nStartupWMClass={window_id}\nTerminal=false\nNoDisplay={str(hidden).lower()}\n",
             encoding="utf-8")
         written.append(p)
     for tool, args in (("update-desktop-database", [str(apps)]), ("gtk-update-icon-cache", ["-q", "-f", "-t", str(base / "icons" / "hicolor")])):
