@@ -32,7 +32,9 @@ node tests/browser/panel.cjs
 
 It verifies that repeated snapshots preserve unchanged widget nodes, paused and
 hidden automata perform no engine work, edits still render while paused, and
-visibility/suspension preserve the user's play/pause choice. `HYTE_CHROMIUM`
+visibility/suspension preserve the user's play/pause choice. It also verifies separate
+RTX 5090/T400 telemetry, stable GPU nodes after reordering, single-device and
+unavailable-reading behavior, and removal/reconnection. `HYTE_CHROMIUM`
 selects a browser executable; `HYTE_SCREENSHOT` selects the screenshot path.
 The WebKit test in `automata/test/gpu.html` also checks asynchronous readback
 against an exact snapshot while simulation advances, and resize cancellation.

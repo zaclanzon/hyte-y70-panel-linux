@@ -48,18 +48,22 @@
     </section>
 
     <section class="card stat-card" id="gpu-card" data-widget="gpu">
-      <div class="stat-head"><span class="stat-title">GPU</span><span class="stat-sub" id="gpu-model">No GPU</span></div>
+      <div id="gpu-empty" class="stat-head"><span class="stat-title">GPU</span><span class="stat-sub">No NVIDIA GPU found</span></div>
+      <div id="gpu-list"></div>
+      <template id="gpu-template"><div class="gpu-device">
+      <div class="stat-head"><span class="stat-title">GPU</span><span class="stat-sub" data-gpu="model">No GPU</span></div>
       <div class="stat-body">
-        <div class="ring" id="gpu-ring"></div>
+        <div class="ring" data-gpu="ring"></div>
         <div class="stat-facts">
-          <div class="fact"><span class="fact-label">Temp</span><span class="fact-value" id="gpu-temp">--</span></div>
-          <div class="fact"><span class="fact-label">Power</span><span class="fact-value" id="gpu-power">--</span></div>
-          <div class="fact"><span class="fact-label">Clock</span><span class="fact-value" id="gpu-clock">--</span></div>
-          <div class="fact"><span class="fact-label">Fan</span><span class="fact-value" id="gpu-fan">--</span></div>
+          <div class="fact"><span class="fact-label">Temp</span><span class="fact-value" data-gpu="temp">--</span></div>
+          <div class="fact"><span class="fact-label">Power</span><span class="fact-value" data-gpu="power">--</span></div>
+          <div class="fact"><span class="fact-label">Clock</span><span class="fact-value" data-gpu="clock">--</span></div>
+          <div class="fact"><span class="fact-label">Fan</span><span class="fact-value" data-gpu="fan">--</span></div>
           </div>
         </div>
-      <canvas class="spark" id="gpu-spark" width="640" height="80"></canvas>
-      <div class="bar-row"><span class="bar-label">VRAM</span><div class="bar"><div class="bar-fill" id="gpu-vram-bar"></div></div><span class="bar-value" id="gpu-vram">--</span></div>
+      <canvas class="spark" data-gpu="spark" width="640" height="80"></canvas>
+      <div class="bar-row"><span class="bar-label">VRAM</span><div class="bar"><div class="bar-fill" data-gpu="vram-bar"></div></div><span class="bar-value" data-gpu="vram">--</span></div>
+      </div></template>
     </section>
 
     <section class="card stat-card" id="mem-card" data-widget="memory">
