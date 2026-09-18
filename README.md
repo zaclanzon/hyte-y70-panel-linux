@@ -174,3 +174,8 @@ docs/            install checklist, HYTE screen notes
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+NVIDIA telemetry displays each GPU separately, including its name, usage, temperature,
+and VRAM used/capacity. Each device has its own graph; VRAM capacities are never pooled.
+Unsupported readings appear as `--`. GPU visibility and ordering settings apply to the
+whole GPU widget, including all detected devices.

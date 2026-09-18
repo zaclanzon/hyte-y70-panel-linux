@@ -266,3 +266,6 @@ canvas { display: block; }
 @media (prefers-reduced-motion: reduce) {
   .agent .light { animation: none; } /* ambient.js also freezes its field */
 }
+
+/* Each device owns its readings and VRAM capacity within the GPU widget. */
+.gpu-device + .gpu-device { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border, #ffffff20); }

@@ -31,6 +31,7 @@ const fixture = {
   return route.fulfill({path:path.join(root,name)});
  });
  await page.addInitScript(f=>{
+  window.fixture=f;
   window.sendSnapshot=()=>window.socket.onmessage({data:JSON.stringify({type:'snapshot',data:f.snapshot})});
   window.WebSocket=class {
    static OPEN=1;
@@ -66,8 +67,30 @@ const fixture = {
  assert.deepEqual(await page.evaluate(()=>counts),{read:0,readAsync:0,render:0,step:0},'hidden tab does no engine work');
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});await page.waitForTimeout(250);
  assert.ok(await page.evaluate(()=>counts.step)>0,'visible tab resumes');
+ // Per-device telemetry survives reorder and clears when GPUs disappear.
+ await page.evaluate(()=>{
+  window.a={uuid:'GPU-a',index:0,name:'NVIDIA GeForce RTX 5090',util_percent:97,temp_c:65,mem_used_mb:16384,mem_total_mb:32768,mem_percent:50};
+  window.b={uuid:'GPU-b',index:1,name:'NVIDIA T400',util_percent:2,temp_c:38,mem_used_mb:512,mem_total_mb:4096,mem_percent:12.5};
+  fixture.snapshot.gpus=[a,b];sendSnapshot();
+  window.gpuNodes=[...document.querySelectorAll('.gpu-device')];
+ });
+ assert.deepEqual(await page.locator('[data-gpu="model"]').allTextContents(),['NVIDIA GeForce RTX 5090','NVIDIA T400']);
+ assert.deepEqual(await page.locator('[data-gpu="vram"]').allTextContents(),['16.0 / 32 GB','0.5 / 4 GB']);
+ assert.deepEqual(await page.locator('[data-gpu="ring"] b').allTextContents(),['97%','2%']);
+ assert.deepEqual(await page.locator('[data-gpu="temp"]').allTextContents(),['65°C','38°C']);
+ await page.evaluate(()=>{fixture.snapshot.gpus=[b,a];sendSnapshot();});
+ assert.ok(await page.evaluate(()=>document.querySelectorAll('.gpu-device')[0]===gpuNodes[1] && document.querySelectorAll('.gpu-device')[1]===gpuNodes[0]),'reorder retains physical GPU nodes and history');
+ await page.evaluate(()=>{fixture.snapshot.gpus=[{...b,util_percent:null,mem_total_mb:null,temp_c:null}];sendSnapshot();});
+ assert.equal(await page.locator('.gpu-device').count(),1);
+ assert.equal(await page.locator('[data-gpu="vram"]').textContent(),'--');
+ assert.equal(await page.locator('[data-gpu="ring"] b').textContent(),'--');
+ await page.evaluate(()=>{fixture.snapshot.gpus=[];sendSnapshot();});
+ assert.equal(await page.locator('.gpu-device').count(),0);
+ assert.ok(await page.locator('#gpu-empty').isVisible());
+ await page.evaluate(()=>{fixture.snapshot.gpus=[a,b];sendSnapshot();});
+ assert.equal(await page.locator('.gpu-device').count(),2);
  await page.screenshot({path:process.env.HYTE_SCREENSHOT || '/tmp/hyte-panel-optimized.png'});
  assert.deepEqual(errors,[]);
- console.log('PASS unchanged DOM, paused edits, suspension, manual pause, hidden-tab resume');
+ console.log('PASS unchanged DOM, paused edits, suspension, manual pause, hidden-tab resume, multi-GPU telemetry');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

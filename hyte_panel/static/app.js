@@ -162,9 +162,43 @@
   }
 
   const cpuRing = makeRing($("cpu-ring"), "usage");
-  const gpuRing = makeRing($("gpu-ring"), "usage");
   const cpuSpark = makeSpark($("cpu-spark"));
-  const gpuSpark = makeSpark($("gpu-spark"));
+
+  // Keep history attached to the physical GPU, even if enumeration order changes.
+  const gpuViews = new Map();
+  function renderGpus(gpus) {
+    const list = $("gpu-list");
+    const seen = new Set();
+    $("gpu-empty").hidden = gpus.length > 0;
+    gpus.forEach((gpu, index) => {
+      const key = gpu.uuid || `index:${gpu.index ?? index}:${gpu.name}`;
+      seen.add(key);
+      let view = gpuViews.get(key);
+      if (!view) {
+        const el = $("gpu-template").content.firstElementChild.cloneNode(true);
+        view = { el, ring: makeRing(el.querySelector('[data-gpu="ring"]'), "usage"),
+          spark: makeSpark(el.querySelector('[data-gpu="spark"]')) };
+        gpuViews.set(key, view);
+      }
+      if (list.children[index] !== view.el) list.insertBefore(view.el, list.children[index] || null);
+      const field = (name) => view.el.querySelector(`[data-gpu="${name}"]`);
+      setText(field("model"), gpu.name);
+      view.ring(gpu.util_percent);
+      view.spark(gpu.util_percent);
+      setText(field("temp"), fmtTemp(gpu.temp_c));
+      setText(field("power"), gpu.power_w == null ? "--" : `${Math.round(gpu.power_w)} W${gpu.power_limit_w ? " / " + Math.round(gpu.power_limit_w) : ""}`);
+      setText(field("clock"), gpu.clock_sm_mhz == null ? "--" : `${Math.round(gpu.clock_sm_mhz)} MHz`);
+      setText(field("fan"), gpu.fan_percent == null ? "--" : `${Math.round(gpu.fan_percent)}%`);
+      const vram = gpu.mem_percent ?? 0;
+      field("vram-bar").style.width = `${vram}%`;
+      field("vram-bar").style.background = heat(vram);
+      field("vram-bar").dataset.heat = vram;
+      setText(field("vram"), gpu.mem_used_mb == null || gpu.mem_total_mb == null ? "--" : `${(gpu.mem_used_mb / 1024).toFixed(1)} / ${(gpu.mem_total_mb / 1024).toFixed(0)} GB`);
+    });
+    for (const [key, view] of gpuViews) {
+      if (!seen.has(key)) { view.el.remove(); gpuViews.delete(key); }
+    }
+  }
 
   // ---- Clock -----------------------------------------------------------------------
   function tickClock() {
@@ -346,24 +380,7 @@
     }
     cpu.per_core.forEach((p, i) => (cores.children[i].firstChild.style.width = `${p}%`));
 
-    const gpu = (s.gpus || [])[0];
-    if (gpu) {
-      setText($("gpu-model"), gpu.name);
-      gpuRing(gpu.util_percent);
-      gpuSpark(gpu.util_percent);
-      setText($("gpu-temp"), fmtTemp(gpu.temp_c));
-      setText($("gpu-power"), gpu.power_w == null ? "--" : `${Math.round(gpu.power_w)} W${gpu.power_limit_w ? " / " + Math.round(gpu.power_limit_w) : ""}`);
-      setText($("gpu-clock"), gpu.clock_sm_mhz == null ? "--" : `${Math.round(gpu.clock_sm_mhz)} MHz`);
-      setText($("gpu-fan"), gpu.fan_percent == null ? "--" : `${Math.round(gpu.fan_percent)}%`);
-      const vram = gpu.mem_percent ?? 0;
-      $("gpu-vram-bar").style.width = `${vram}%`;
-      $("gpu-vram-bar").style.background = heat(vram);
-      $("gpu-vram-bar").dataset.heat = vram;
-      setText($("gpu-vram"), gpu.mem_used_mb == null ? "--" : `${(gpu.mem_used_mb / 1024).toFixed(1)} / ${(gpu.mem_total_mb / 1024).toFixed(0)} GB`);
-    } else {
-      setText($("gpu-model"), "No NVIDIA GPU found");
-      gpuRing(null);
-    }
+    renderGpus(s.gpus || []);
 
     const mem = s.memory;
     setText($("mem-total"), fmtGB(mem.total));

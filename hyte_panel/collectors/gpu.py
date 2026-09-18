@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import shutil
 import subprocess
 from typing import Any
@@ -17,6 +18,8 @@ _FIELDS = [
     "fan.speed",
     "clocks.sm",
     "clocks.mem",
+    "uuid",
+    "index",
 ]
 
 
@@ -33,15 +36,17 @@ def _num(value: str) -> float | None:
 def parse_nvidia_smi(output: str) -> list[dict[str, Any]]:
     """Parse the CSV output of nvidia-smi --query-gpu with the _FIELDS order."""
     gpus = []
-    for line in output.splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < len(_FIELDS):
+    for row in csv.reader(output.splitlines(), skipinitialspace=True):
+        parts = [p.strip() for p in row]
+        if len(parts) < 10:
             continue
         mem_used = _num(parts[3])
         mem_total = _num(parts[4])
         gpus.append(
             {
                 "name": parts[0],
+                "uuid": parts[10] if len(parts) > 10 and parts[10].startswith("GPU-") else None,
+                "index": int(parts[11]) if len(parts) > 11 and parts[11].isdigit() else len(gpus),
                 "util_percent": _num(parts[1]),
                 "temp_c": _num(parts[2]),
                 "mem_used_mb": mem_used,
@@ -77,19 +82,24 @@ class GpuCollector:
     def _via_nvml(self) -> list[dict[str, Any]]:
         nv = self._nvml
         gpus = []
-        for i in range(nv.nvmlDeviceGetCount()):
-            h = nv.nvmlDeviceGetHandleByIndex(i)
-            name = nv.nvmlDeviceGetName(h)
-            if isinstance(name, bytes):
-                name = name.decode()
-            util = nv.nvmlDeviceGetUtilizationRates(h)
-            mem = nv.nvmlDeviceGetMemoryInfo(h)
+        def safe(fn, *args):
+            try:
+                return fn(*args)
+            except Exception:
+                return None
 
-            def safe(fn, *a):
-                try:
-                    return fn(*a)
-                except Exception:
-                    return None
+        for i in range(nv.nvmlDeviceGetCount()):
+            h = safe(nv.nvmlDeviceGetHandleByIndex, i)
+            if h is None:
+                continue  # A lost device must not discard the other GPUs.
+            name = safe(nv.nvmlDeviceGetName, h)
+            if isinstance(name, bytes):
+                name = name.decode(errors="replace")
+            uuid = safe(nv.nvmlDeviceGetUUID, h)
+            if isinstance(uuid, bytes):
+                uuid = uuid.decode(errors="replace")
+            util = safe(nv.nvmlDeviceGetUtilizationRates, h)
+            mem = safe(nv.nvmlDeviceGetMemoryInfo, h)
 
             temp = safe(nv.nvmlDeviceGetTemperature, h, nv.NVML_TEMPERATURE_GPU)
             power = safe(nv.nvmlDeviceGetPowerUsage, h)
@@ -99,12 +109,14 @@ class GpuCollector:
             memclk = safe(nv.nvmlDeviceGetClockInfo, h, nv.NVML_CLOCK_MEM)
             gpus.append(
                 {
-                    "name": name,
-                    "util_percent": float(util.gpu),
+                    "name": name or f"NVIDIA GPU {i}",
+                    "uuid": uuid,
+                    "index": i,
+                    "util_percent": float(util.gpu) if util is not None else None,
                     "temp_c": float(temp) if temp is not None else None,
-                    "mem_used_mb": mem.used / 1024 / 1024,
-                    "mem_total_mb": mem.total / 1024 / 1024,
-                    "mem_percent": mem.used / mem.total * 100.0 if mem.total else None,
+                    "mem_used_mb": mem.used / 1024 / 1024 if mem is not None else None,
+                    "mem_total_mb": mem.total / 1024 / 1024 if mem is not None else None,
+                    "mem_percent": mem.used / mem.total * 100.0 if mem is not None and mem.total else None,
                     "power_w": power / 1000.0 if power is not None else None,
                     "power_limit_w": limit / 1000.0 if limit is not None else None,
                     "fan_percent": float(fan) if fan is not None else None,
